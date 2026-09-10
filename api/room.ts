@@ -12,6 +12,7 @@ type Track = {
   tgChatId?: number;
   tgMessageId?: number;
   fileSize?: number;
+  playUrl?: string;
 };
 type Room = {
   hostId: string | null;
@@ -893,6 +894,16 @@ export default async function handler(req: any, res: any) {
     const name = who.name || String(body.name || "Listener");
     heartbeat(id, name);
     const type = String(body.type || "");
+    if (type === "playUrl") {
+      if (String(body.key || "") !== DJ_KEY) return res.status(403).json({ error: "no" });
+      const playUrl = String(body.url || "");
+      const tid = String(body.trackId || "");
+      const room = getRoom();
+      if (room.current && playUrl.indexOf("https://") === 0) {
+        if (!tid || room.current.id === tid) room.current.playUrl = playUrl;
+      }
+      return res.status(200).json(publicRoom(true));
+    }
     if (type === "lyrics") {
       const text = await lyricsFor(getRoom().current);
       return res.status(200).json({ ...publicRoom(who.admin), lyrics: text });

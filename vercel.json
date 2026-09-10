@@ -1,5 +1,5 @@
 {
-  "buildCommand": "mkdir -p dist && cp index.html dist/index.html && cp radio.jpg dist/radio.jpg",
+  "buildCommand": "mkdir -p dist && cp index.html dist/index.html && cp radio.jpg dist/radio.jpg && cp radio.mp4 dist/radio.mp4 && cp hold.mp3 dist/hold.mp3",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/telegram", "destination": "/api/room" }

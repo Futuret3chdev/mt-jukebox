@@ -36,7 +36,7 @@
       box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
       background: #111;
     }
-    .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cover.live { box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 40px rgba(212,175,55,.25); }
     .now { text-align: center; margin-bottom: 8px; }
     .transport { display: flex; justify-content: center; align-items: center; gap: 16px; margin: 8px 0 16px; }
@@ -70,30 +70,26 @@
   </style>
 </head>
 <body>
-  <div class="app" id="app">
+  <div class="app">
     <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MT Radio · $MT</p></div>
-    <h1>Now playing</h1>
-    <div class="cover-wrap"><div class="cover"><img src="/radio.jpg" alt="$MT Radio" /></div></div>
-    <div class="now"><h2>MT Radio</h2><p>MT ecosystem · made by FutureT3ch and MemeTorrent</p>
-      <div class="bar"><span></span></div>
-      <div class="times"><span>0:00</span><span>0:00</span></div>
+    <div class="cover-wrap">
+      <div class="cover live">
+        <video id="feed" src="/radio.mp4" poster="/radio.jpg" autoplay loop muted playsinline webkit-playsinline></video>
+      </div>
+    </div>
+    <div class="now">
+      <h2 id="np-title">MT Radio</h2>
+      <p id="np-sub">Tap Play to hear it</p>
+      <div class="bar"><span id="np-bar"></span></div>
+      <div class="times"><span id="np-t0">0:00</span><span id="np-t1">0:00</span></div>
     </div>
     <div class="transport">
-      <button class="btn ghost go" id="play">▶</button>
-      <button class="btn ghost" id="skip">⏭</button>
+      <button type="button" class="btn ghost go" id="play">▶</button>
+      <button type="button" class="btn ghost" id="skip">⏭</button>
     </div>
-    <a class="btn primary" id="live" href="https://t.me/joinchat/WgogJ0YgKAQzN2Q9" style="display:none">Join live stream</a>
-    <div class="row-btns"><button class="btn ghost" id="ly">Lyrics</button></div>
-    <div class="panel">
-      <h3>Add to the player</h3>
-      <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />
-      <p class="hint">Files, not Photos. Audio or video. Any size.</p>
-      <label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>
-      <textarea id="src" placeholder="https://youtube.com/watch?v=…"></textarea>
-      <button class="btn ghost" id="addurl" type="button">Add stream</button>
-    </div>
+    <p class="err" id="status"></p>
+    <div id="desk"></div>
   </div>
-  <div id="videowrap"></div>
   <audio id="audio" playsinline></audio>
   <script>
     const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
@@ -149,7 +145,6 @@
     function openLive(e) {
       if (e) e.preventDefault();
       syncAudio();
-      ensureVideo();
       try {
         if (tg && tg.openTelegramLink) {
           tg.openTelegramLink(LIVE);
@@ -181,10 +176,8 @@
         room = await res.json();
         if (err && /room|linked|update the room/i.test(err)) err = "";
         syncAudio();
-        if (busy || editing() || Date.now() < holdPaint) {
-          tickBar();
-          return;
-        }
+        chrome();
+        if (busy || editing() || Date.now() < holdPaint) return;
         paint();
       } catch (e) {
         if (!busy) err = "Could not reach MT Radio.";
@@ -218,84 +211,53 @@
       var m = String(url || "").match(/twitch\.tv\/([A-Za-z0-9_]+)/i);
       return m ? m[1] : "";
     }
+    function mediaHref() {
+      var cur = room.current;
+      if (!cur) return "/hold.mp3";
+      if (cur.playUrl) return cur.playUrl;
+      if (cur.kind === "station") return "/hold.mp3";
+      if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
+      return abs(cur.url || "");
+    }
     function syncAudio() {
-      if (!room.current || room.paused || room.current.kind === "station") {
+      var feed = document.getElementById("feed");
+      if (feed) feed.play().catch(function () {});
+      if (!room.current || room.paused) {
         try { audio.pause(); } catch (e) {}
         return;
       }
-      if (["youtube", "twitch", "kick"].indexOf(room.current.kind || "") >= 0) {
-        try { audio.pause(); } catch (e) {}
-        return;
-      }
-      const href = abs(room.current.url);
-      if (href && audio.src !== href) {
-        try { audio.src = href; } catch (e) {}
-      }
-      const want = pos();
-      if (audio.src && Math.abs((audio.currentTime || 0) - want) > 1.2) {
-        try { audio.currentTime = want; } catch (e2) {}
-      }
+      var href = mediaHref();
+      if (!href) return;
+      try {
+        if (audio.getAttribute("data-src") !== href) {
+          audio.src = href;
+          audio.setAttribute("data-src", href);
+        }
+      } catch (e) {}
+      var want = pos();
+      try {
+        if (audio.src && Math.abs((audio.currentTime || 0) - want) > 1.5) audio.currentTime = want;
+      } catch (e2) {}
       audio.play().catch(function () {});
     }
-    function ensureVideo() {
-      var wrap = document.getElementById("videowrap");
-      if (!wrap) return;
-      var cur = room.current;
-      if (!cur || room.paused) {
-        if (!cur) { wrap.innerHTML = ""; ensureVideo.key = ""; }
-        return;
-      }
-      var key = cur.id + ":" + (cur.kind || "");
-      if (ensureVideo.key === key && wrap.firstChild) return;
-      ensureVideo.key = key;
-      var t = Math.max(0, Math.floor(pos()));
-      if (cur.kind === "youtube") {
-        var id = ytId(cur.url);
-        wrap.innerHTML = id
-          ? '<div class="cover-wrap"><img src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg" alt="" style="width:100%;border-radius:12px;display:block" /></div>' +
-            '<iframe src="https://www.youtube-nocookie.com/embed/' + id + "?start=" + t + '&autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
-          : "";
-      } else if (cur.kind === "twitch") {
-        var ch = twitchChan(cur.url);
-        wrap.innerHTML = ch
-          ? '<iframe src="https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=mt-house-jukebox.vercel.app&autoplay=true" allow="autoplay;fullscreen" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
-          : "";
-      } else if (cur.kind === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(cur.url || "")) {
-        wrap.innerHTML = '<video src="' + escapeHtml(abs(cur.url)) + '" autoplay playsinline controls style="width:100%;border-radius:12px;margin:8px 0"></video>';
-        var v = wrap.querySelector("video");
-        if (v) { try { v.currentTime = t; v.play(); } catch (e) {} }
-      } else {
-        wrap.innerHTML = "";
-        ensureVideo.key = "";
-      }
+    function hitPlay() {
+      var feed = document.getElementById("feed");
+      if (feed) feed.play().catch(function () {});
+      syncAudio();
+      act("play");
     }
-    function ensureVideo() {
-      var wrap = document.getElementById("videowrap");
-      if (!wrap) return;
+    function chrome() {
       var cur = room.current;
-      if (!cur || room.paused) return;
-      var key = cur.id + ":" + (cur.kind || "");
-      if (ensureVideo.key === key && wrap.firstChild) return;
-      ensureVideo.key = key;
-      var t = Math.floor(pos());
-      if (cur.kind === "youtube") {
-        var id = ytId(cur.url);
-        wrap.innerHTML = id
-          ? '<iframe src="https://www.youtube.com/embed/' + id + "?start=" + t + '&autoplay=1" allow="autoplay;encrypted-media" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
-          : "";
-      } else if (cur.kind === "twitch") {
-        var ch = twitchChan(cur.url);
-        wrap.innerHTML = ch
-          ? '<iframe src="https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=mt-house-jukebox.vercel.app&autoplay=true" allow="autoplay" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
-          : "";
-      } else if (cur.kind === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(cur.url || "")) {
-        wrap.innerHTML = '<video src="' + escapeHtml(abs(cur.url)) + '" autoplay playsinline controls style="width:100%;border-radius:12px;margin:8px 0"></video>';
-        var v = wrap.querySelector("video");
-        if (v) v.currentTime = t;
-      } else {
-        wrap.innerHTML = "";
-        ensureVideo.key = "";
-      }
+      var onAir = !!(cur && !room.paused);
+      var titleEl = document.getElementById("np-title");
+      var subEl = document.getElementById("np-sub");
+      var playEl = document.getElementById("play");
+      var st = document.getElementById("status");
+      if (titleEl) titleEl.textContent = cur ? cur.title : STATION;
+      if (subEl) subEl.textContent = cur ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : TAGLINE;
+      if (playEl) playEl.textContent = onAir ? "⏸" : "▶";
+      if (st) st.textContent = busy || err || "";
+      tickBar();
     }
 
     async function hostFile(file) {
@@ -403,7 +365,6 @@
         srcDraft = "";
         err = "Playing now in this player.";
         syncAudio();
-        ensureVideo();
       } catch (e2) {
         err = "Could not add that stream.";
       }
@@ -432,14 +393,15 @@
     }
 
     function tickBar() {
-      const bar = document.querySelector(".bar > span");
-      const times = document.querySelectorAll(".times span");
-      if (!bar || !room.current) return;
-      const dur = room.current.duration || audio.duration || 0;
+      const bar = document.getElementById("np-bar");
+      const t0 = document.getElementById("np-t0");
+      const t1 = document.getElementById("np-t1");
+      if (!bar) return;
+      const dur = (room.current && (room.current.duration || audio.duration)) || 0;
       const t = pos();
       bar.style.width = dur ? Math.min(100, (t / dur) * 100) + "%" : "0";
-      if (times[0]) times[0].textContent = fmt(t);
-      if (times[1]) times[1].textContent = fmt(dur);
+      if (t0) t0.textContent = fmt(t);
+      if (t1) t1.textContent = fmt(dur);
     }
 
     function liveButton() {
@@ -450,56 +412,29 @@
     }
 
     function paint() {
-      const cur = room.current;
-      const onAir = !!(cur && !room.paused);
-      const dur = (cur && (cur.duration || audio.duration)) || 0;
-      const t = pos();
-      const pct = dur ? Math.min(100, (t / dur) * 100) : 0;
-      const title = cur ? cur.title : STATION;
-      const sub = cur ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : TAGLINE;
-      const admin = !!room.isAdmin;
       var srcEl = document.getElementById("src");
       if (srcEl) srcDraft = srcEl.value;
       var hadSrc = document.activeElement && document.activeElement.id === "src";
       var sel = srcEl ? srcEl.selectionStart : srcDraft.length;
-      document.getElementById("app").innerHTML =
-        '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT Radio · $MT</p></div>' +
-        "<h1>Now playing</h1>" +
-        '<div class="cover-wrap"><div class="cover ' + (onAir ? "live" : "") + '"><img src="' + RADIO + '" alt="$MT Radio" /></div></div>' +
-        '<div id="videohole"></div>' +
-        '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || TAGLINE) + "</p>" +
-        '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
-        '<div class="times"><span>' + fmt(t) + "</span><span>" + fmt(dur) + "</span></div></div>" +
-        (admin
-          ? '<div class="transport"><button class="btn ghost go" id="play" aria-label="Play or pause">' + (onAir ? "⏸" : "▶") + '</button><button class="btn ghost" id="skip" aria-label="Skip">⏭</button></div>'
-          : "") +
-        liveButton() +
-        '<div class="row-btns"><button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button></div>" +
-        (admin ? "" : '<p class="hint">Same song, same time. Join live to hear it in the group in color.</p>') +
+      chrome();
+      var admin = !!room.isAdmin;
+      document.getElementById("desk").innerHTML =
         (showLyrics ? '<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">' + escapeHtml(lyrics || "Looking up…") + "</p></div>" : "") +
+        '<div class="row-btns"><button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button></div>" +
         (admin
           ? '<div class="panel"><h3>Add to the player</h3>' +
             '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />' +
-            '<p class="hint">Files, not Photos. Audio or video. Any size.</p>' +
+            '<p class="hint">Files, not Photos. Audio or video. Any size. Adding a track plays it here.</p>' +
             "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
-            '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
+            '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream"></textarea>' +
             '<button class="btn ghost" id="addurl" type="button">Add stream</button></div>' +
             '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ')</h3>' + rows(room.queue || [], "queue") + '</div>' +
             '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + '</div>'
           : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
-        (err && !busy ? '<p class="err">' + escapeHtml(err) + "</p>" : "") +
-        (busy ? '<p class="err" style="color:#fde68a">' + escapeHtml(busy) + "</p>" : (!err ? '<p class="hint">Close this page — MT Radio stays on in the live chat.</p>' : "")) +
         '<p class="made">MT Radio · FutureT3ch × MemeTorrent · $MT</p>';
 
-      ensureVideo();
-      var hole = document.getElementById("videohole");
-      var wrap = document.getElementById("videowrap");
-      if (hole && wrap && wrap.parentNode !== hole) hole.appendChild(wrap);
-
-      var liveEl = document.getElementById("live");
-      if (liveEl) liveEl.onclick = openLive;
       var play = document.getElementById("play");
-      if (play) play.onclick = function () { act("play"); syncAudio(); ensureVideo(); };
+      if (play) play.onclick = hitPlay;
       var skip = document.getElementById("skip");
       if (skip) skip.onclick = function () { act("skip"); };
       var ly = document.getElementById("ly");
@@ -555,6 +490,8 @@
       }
       joined = true;
       paint();
+      chrome();
+      syncAudio();
       pull();
       setInterval(pull, 1000);
       setInterval(function () { if (joined) tickBar(); }, 250);
@@ -578,7 +515,7 @@
       var live0 = document.getElementById("live");
       if (live0) live0.onclick = openLive;
       var play0 = document.getElementById("play");
-      if (play0) play0.onclick = function () { act("play"); };
+      if (play0) play0.onclick = hitPlay;
       var skip0 = document.getElementById("skip");
       if (skip0) skip0.onclick = function () { act("skip"); };
       var add0 = document.getElementById("addurl");
