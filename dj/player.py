@@ -4,6 +4,7 @@ from pyrogram.raw.functions.phone import CreateGroupCall
 from pytgcalls import PyTgCalls
 from pytgcalls.types import GroupCallConfig
 from pytgcalls.types.raw import Stream, AudioStream, AudioParameters, VideoStream, VideoParameters
+from pytgcalls.types.stream.media_stream import MediaStream
 from ntgcalls import MediaSource
 
 API_ID = 21002278
@@ -139,18 +140,11 @@ def to_wav(src, dest, start=0):
 
 
 def audio_stream(path):
-    cam = RADIO_MP4 if os.path.exists(RADIO_MP4) else RADIO_JPG
-    return Stream(
-        microphone=AudioStream(
-            MediaSource.FILE,
-            path,
-            AudioParameters(bitrate=48000, channels=2),
-        ),
-        camera=VideoStream(
-            MediaSource.FILE,
-            cam,
-            VideoParameters(width=720, height=720, frame_rate=24),
-        ),
+    return MediaStream(
+        media_path=path,
+        audio_path=path,
+        video_flags=MediaStream.Flags.IGNORE,
+        ffmpeg_parameters="-stream_loop -1",
     )
 
 
@@ -416,8 +410,9 @@ async def main():
     async def ensure_call():
         try:
             peer = await user.resolve_peer(CHAT_ID)
-            await user.invoke(CreateGroupCall(peer=peer, random_id=random.randint(1, 0x7FFFFFFF)))
+            await user.invoke(CreateGroupCall(peer=peer, random_id=random.randint(1, 0x7FFFFFFF), title="MT Radio"))
             print("created_call", flush=True)
+            await asyncio.sleep(2)
             return True
         except Exception as e:
             msg = str(e)
@@ -485,7 +480,7 @@ async def main():
             if cur and not paused:
                 empty_n = 0
                 pause_votes = 0
-                tid = str(cur.get("id") or "hold")
+                tid = title_key(cur) or str(cur.get("id") or "hold")
             else:
                 empty_n += 1
                 if last and last != "hold" and empty_n < 40:
@@ -500,8 +495,9 @@ async def main():
             if start_live:
                 print("golive", int(want), flush=True)
                 last_live = want
-                joined = False
-                bot_on = False
+                if joined:
+                    print("golive_already_on", flush=True)
+                    start_live = False
             srcp = cache_wav(str((cur or {}).get("id") or last or "x"))
             ytc = os.path.join(TRACK_DIR, "yt-" + ytid((cur or {}).get("url") or "") + ".wav") if cur else ""
             durp = srcp if os.path.exists(srcp) else (ytc if ytc and os.path.exists(ytc) else "")

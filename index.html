@@ -97,7 +97,7 @@
     <div class="panel" id="addpanel">
       <h3>Add to the player</h3>
       <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />
-      <p class="hint">Files, not Photos. You listen with Play here. Other people tap Live and join the top bar — not your phone as the DJ.</p>
+      <p class="hint">Files, not Photos. Play here is only while this page is open. For sound that stays on, tap Live and join the voice chat bar at the top of SoftwareTesters.</p>
       <label>YouTube, radio, Twitch, Kick, Icecast, HLS</label>
       <textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream"></textarea>
       <button class="btn ghost" id="addurl" type="button">Add stream</button>
@@ -282,16 +282,34 @@
     }
     function mediaHref() {
       var cur = room.current;
+      var blob = "";
+      try { blob = audio.getAttribute("data-src") || ""; } catch (e) { blob = ""; }
+      if (blob.indexOf("blob:") === 0) return blob;
       if (!cur || cur.kind === "station") return "/hold.mp3";
       if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
+      if (cur.url && String(cur.url).indexOf("/api/") === 0) return cur.url;
+      if (cur.playUrl && String(cur.playUrl).indexOf("/api/") === 0) return cur.playUrl;
       var u = cur.playUrl || cur.url || "";
       if (!u) return "/hold.mp3";
-      if (u.indexOf("/api/") === 0) return u;
       if (u.indexOf("http") === 0) {
         if (cur.kind === "radio" || cur.kind === "stream") return u;
         return "/api/room?src=" + encodeURIComponent(u);
       }
       return "/hold.mp3";
+    }
+    function playFileNow(file) {
+      try { if (playFileNow.href) URL.revokeObjectURL(playFileNow.href); } catch (e0) {}
+      playFileNow.href = URL.createObjectURL(file);
+      wantPlay = true;
+      try {
+        audio.muted = false;
+        audio.volume = 1;
+        audio.src = playFileNow.href;
+        audio.setAttribute("data-src", playFileNow.href);
+        audio.play().catch(function () {});
+      } catch (e) {}
+      var feed = document.getElementById("feed");
+      if (feed) feed.play().catch(function () {});
     }
     function isOnAir() {
       return !!wantPlay;
@@ -338,7 +356,10 @@
     }
     function hitPlay() {
       wantPlay = !wantPlay;
-      if (room.isAdmin) act(wantPlay ? "play" : "pause");
+      if (room.isAdmin) {
+        act(wantPlay ? "play" : "pause");
+        if (wantPlay) act("golive");
+      }
       if (wantPlay) {
         err = "";
         startSound();
@@ -423,6 +444,7 @@
       busy = "Adding " + file.name + "…";
       err = "Adding " + file.name + "…";
       holdPaint = Date.now() + 20000;
+      playFileNow(file);
       chrome();
       try {
         var posted = false;
@@ -455,7 +477,6 @@
         wantPlay = true;
         busy = "";
         err = "Added " + file.name;
-        startSound();
         try {
           var lib = (room.library || []).slice();
           localStorage.setItem("jb-lib", JSON.stringify(lib.slice(0, 200)));
@@ -630,6 +651,9 @@
       bindFile(document.getElementById("file"));
       var live0 = document.getElementById("live");
       if (live0) live0.addEventListener("click", openLive);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden && wantPlay) startSound();
+      });
       var play0 = document.getElementById("play");
       if (play0) play0.onclick = hitPlay;
       var feed0 = document.getElementById("feed");
