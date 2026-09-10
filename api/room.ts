@@ -28,6 +28,7 @@ const APP = "https://mt-house-jukebox.vercel.app/";
 const LIVE = "https://t.me/c/2671373361?voicechat";
 const INVITE = "https://t.me/+WgogJ0YgKAQzN2Q9";
 const GROUP = -1002671373361;
+const BOT_DM = "https://t.me/Mtradiobot?start=menu";
 const DJ_KEY = process.env.DJ_KEY || "mt-radio-dj-9f3";
 const STATION = {
   name: "MT Radio",
@@ -384,6 +385,19 @@ function liveKeyboard() {
   };
 }
 
+function dmKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "Open menu in DMs", url: BOT_DM }],
+      [{ text: "Join MT Radio live", url: LIVE }],
+    ],
+  };
+}
+
+function isPrivateChat(chat: any) {
+  return chat?.type === "private";
+}
+
 function menuKeyboard(admin: boolean) {
   if (!admin) return liveKeyboard();
   return {
@@ -398,7 +412,7 @@ function menuKeyboard(admin: boolean) {
         { text: "Lyrics", callback_data: "lyrics" },
       ],
       [{ text: "Join MT Radio live", url: LIVE }],
-      [{ text: "Open DJ desk", url: APP }],
+      [{ text: "Open DJ desk", web_app: { url: APP } }],
     ],
   };
 }
@@ -413,7 +427,17 @@ function queueKeyboard() {
   return { inline_keyboard: rows };
 }
 
-async function sendMenu(chatId: number, extra?: string, admin = true) {
+async function sendMenu(chat: any, extra?: string, admin = true) {
+  const chatId = typeof chat === "object" ? chat.id : chat;
+  const priv = typeof chat === "object" ? isPrivateChat(chat) : chatId > 0;
+  if (!priv) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: (extra ? extra + "\n\n" : "") + "The menu only opens in DMs with @Mtradiobot.",
+      reply_markup: dmKeyboard(),
+    });
+    return;
+  }
   await tg("sendMessage", {
     chat_id: chatId,
     text: (extra ? extra + "\n\n" : "") + nowText(),
@@ -430,9 +454,13 @@ async function handleTelegram(update: any) {
     const data = String(cb.data || "");
     const admin = await isAdmin(id);
     heartbeat(id, name);
+    const priv = isPrivateChat(cb.message?.chat);
     let text = nowText();
-    let markup: any = menuKeyboard(admin);
-    if (!admin && ["play", "pause", "skip"].includes(data)) {
+    let markup: any = priv ? menuKeyboard(admin) : dmKeyboard();
+    if (!priv && (data === "menu" || data === "queue" || data === "lyrics")) {
+      text = "The menu only opens in DMs with @Mtradiobot.";
+      markup = dmKeyboard();
+    } else if (!admin && ["play", "pause", "skip"].includes(data)) {
       text = "Only group admins can DJ.\n\n" + nowText();
       markup = liveKeyboard();
     } else if (data === "play") {
@@ -449,22 +477,26 @@ async function handleTelegram(update: any) {
       text = room.queue.length
         ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
         : "Queue is empty.";
-      markup = admin ? queueKeyboard() : liveKeyboard();
+      markup = priv && admin ? queueKeyboard() : dmKeyboard();
     } else if (data === "lyrics") {
       text = (await lyricsFor(getRoom().current)).slice(0, 3500);
-      markup = { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] };
+      markup = priv
+        ? { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] }
+        : dmKeyboard();
     } else if (data === "menu") {
-      text = nowText();
+      text = priv ? nowText() : "The menu only opens in DMs with @Mtradiobot.";
+      markup = priv ? menuKeyboard(admin) : dmKeyboard();
     } else if (data.startsWith("rm:")) {
-      if (admin) removeFromQueue(data.slice(3));
+      if (admin && priv) removeFromQueue(data.slice(3));
       const room = getRoom();
       text = room.queue.length
         ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title).join("\n")
         : "Queue is empty.";
-      markup = admin ? queueKeyboard() : liveKeyboard();
+      markup = priv && admin ? queueKeyboard() : dmKeyboard();
     } else if (data.startsWith("del:")) {
-      if (admin) deleteTrack(data.slice(4));
+      if (admin && priv) deleteTrack(data.slice(4));
       text = nowText();
+      markup = priv ? menuKeyboard(admin) : dmKeyboard();
     }
     await tg("answerCallbackQuery", {
       callback_query_id: cb.id,
@@ -500,8 +532,8 @@ async function handleTelegram(update: any) {
     if (!admin) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "Only group admins can add tracks.\nTap Join live to listen to MT Radio.",
-        reply_markup: liveKeyboard(),
+        text: "Only group admins can add tracks.\nTap Join live to listen, or open the menu in DMs.",
+        reply_markup: isPrivateChat(msg.chat) ? liveKeyboard() : dmKeyboard(),
         reply_to_message_id: msg.message_id,
       });
       return;
@@ -524,7 +556,7 @@ async function handleTelegram(update: any) {
     await tg("sendMessage", {
       chat_id: chatId,
       text: "Queued on MT Radio: " + title,
-      reply_markup: menuKeyboard(true),
+      reply_markup: isPrivateChat(msg.chat) ? menuKeyboard(true) : liveKeyboard(),
     });
     return;
   }
@@ -532,6 +564,7 @@ async function handleTelegram(update: any) {
   const text = String(msg.text || "");
   const src = parseSource(text);
   const cmd = text.replace(/@\w+/, "").trim().toLowerCase();
+  const priv = isPrivateChat(msg.chat);
   if (src && !cmd.startsWith("/") && admin) {
     const title = src.title === src.kind || src.title === "YouTube" || src.title === "Twitch" ? src.title + " stream" : src.title;
     addTrack(
@@ -549,30 +582,35 @@ async function handleTelegram(update: any) {
     await tg("sendMessage", {
       chat_id: chatId,
       text: "Queued on MT Radio: " + title,
-      reply_markup: menuKeyboard(true),
+      reply_markup: priv ? menuKeyboard(true) : liveKeyboard(),
     });
     return;
   }
 
   if (cmd === "/play" || cmd === "play" || cmd === "▶️ play") {
-    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
+    if (!admin) return void sendMenu(msg.chat, "Only group admins can DJ.", false);
     play(id, name);
-    await sendMenu(chatId);
+    await sendMenu(msg.chat, undefined, true);
   } else if (cmd === "/pause" || cmd === "pause" || cmd === "⏸ pause") {
-    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
+    if (!admin) return void sendMenu(msg.chat, "Only group admins can DJ.", false);
     pause(id, name);
-    await sendMenu(chatId);
+    await sendMenu(msg.chat, undefined, true);
   } else if (cmd === "/skip" || cmd === "skip" || cmd === "⏭ skip") {
-    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
+    if (!admin) return void sendMenu(msg.chat, "Only group admins can DJ.", false);
     skip(id, name);
-    await sendMenu(chatId);
+    await sendMenu(msg.chat, undefined, true);
   } else if (cmd === "/queue" || cmd === "queue" || cmd === "📋 queue") {
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
     const room = getRoom();
     const q = room.queue.length
       ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
       : "Queue is empty.";
     await tg("sendMessage", { chat_id: chatId, text: q + "\n\n" + nowText(), reply_markup: admin ? queueKeyboard() : liveKeyboard() });
   } else if (cmd === "/lyrics" || cmd === "lyrics" || cmd === "🎤 lyrics") {
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
     const lyrics = (await lyricsFor(getRoom().current)).slice(0, 3500);
     await tg("sendMessage", {
       chat_id: chatId,
@@ -582,10 +620,11 @@ async function handleTelegram(update: any) {
   } else if (cmd === "/live" || cmd === "live" || /^\/live(@\w+)?$/.test(cmd) || cmd === "/now") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: nowText() + "\n\nTap Join MT Radio live — that opens the voice chat at the top of this group.",
+      text: nowText() + "\n\nTap Join MT Radio live — that opens the voice chat at the top of SoftwareTesters.",
       reply_markup: liveKeyboard(),
     });
-  } else if (/^\/(start|jukebox|menu)(@\w+)?$/.test(cmd) || cmd === "menu") {
+  } else if (/^\/(start|jukebox|menu)(@\w+)?/.test(cmd) || cmd === "menu") {
+    if (!priv) return void sendMenu(msg.chat, undefined, admin);
     if (!admin) {
       await tg("sendMessage", {
         chat_id: chatId,
@@ -604,30 +643,34 @@ async function handleTelegram(update: any) {
 
 async function setupBot() {
   const g = globalThis as any;
-  if (g.__jbBotReady) return;
-  g.__jbBotReady = true;
-  await tg("setMyCommands", {
-    commands: [
-      { command: "live", description: "Join MT Radio live" },
-      { command: "now", description: "What's playing" },
-    ],
-  });
-  await tg("setMyCommands", {
-    commands: [
-      { command: "live", description: "Join MT Radio live" },
-      { command: "now", description: "What's playing" },
-      { command: "menu", description: "DJ desk" },
-      { command: "play", description: "Play / resume" },
-      { command: "pause", description: "Pause" },
-      { command: "skip", description: "Next track" },
-      { command: "queue", description: "Queue" },
-      { command: "lyrics", description: "Lyrics" },
-      { command: "jukebox", description: "Open DJ desk" },
-    ],
-    scope: { type: "all_chat_administrators" },
-  });
+  if (g.__jbBotReady === "dm-menu-1") return;
+  g.__jbBotReady = "dm-menu-1";
+  const groupCmds = [
+    { command: "live", description: "Join MT Radio live" },
+    { command: "now", description: "What's playing" },
+  ];
+  const dmCmds = [
+    { command: "menu", description: "Open the DJ menu" },
+    { command: "live", description: "Join MT Radio live" },
+    { command: "now", description: "What's playing" },
+    { command: "play", description: "Play / resume" },
+    { command: "pause", description: "Pause" },
+    { command: "skip", description: "Next track" },
+    { command: "queue", description: "Queue" },
+    { command: "lyrics", description: "Lyrics" },
+    { command: "jukebox", description: "Open DJ desk" },
+  ];
+  await tg("setMyCommands", { commands: groupCmds });
+  await tg("setMyCommands", { commands: groupCmds, scope: { type: "all_group_chats" } });
+  await tg("setMyCommands", { commands: groupCmds, scope: { type: "chat", chat_id: GROUP } });
+  await tg("setMyCommands", { commands: dmCmds, scope: { type: "all_private_chats" } });
+  await tg("setMyCommands", { commands: dmCmds, scope: { type: "all_chat_administrators" } });
   await tg("setChatMenuButton", {
     menu_button: { type: "web_app", text: "MT Radio", web_app: { url: APP } },
+  });
+  await tg("setChatMenuButton", {
+    chat_id: GROUP,
+    menu_button: { type: "commands" },
   });
 }
 
