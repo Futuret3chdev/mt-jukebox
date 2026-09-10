@@ -185,24 +185,36 @@
         room = await res.json();
         if (err && /room|linked|update the room/i.test(err)) err = "";
         try {
-          var saved = JSON.parse(localStorage.getItem("jb-lib") || "[]");
-          if (saved.length) {
-            var have = (room.library || []).map(function (t) { return t.id + t.url; });
-            saved.forEach(function (t) {
-              if (t && t.url && have.indexOf(t.id + t.url) < 0) {
-                room.library = room.library || [];
-                room.library.push(t);
-              }
-            });
-            if ((room.library || []).length > saved.length) {
-              localStorage.setItem("jb-lib", JSON.stringify(room.library.slice(0, 200)));
-            }
-            if (saved.length && (!room.library || room.library.length < saved.length) && room.isAdmin) {
-              act("seed", { tracks: saved });
-            }
-          } else if (room.library && room.library.length) {
-            localStorage.setItem("jb-lib", JSON.stringify(room.library.slice(0, 200)));
+          function songKey(t) {
+            return String(t && t.title || "")
+              .replace(/\.[^.]+$/, "")
+              .replace(/[_-]+/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+              .toLowerCase() || String(t && t.url || "") || String(t && t.id || "");
           }
+          function uniqueLib(list) {
+            var seen = {};
+            var out = [];
+            (list || []).forEach(function (t) {
+              var k = songKey(t);
+              if (!k || seen[k]) return;
+              seen[k] = 1;
+              out.push(t);
+            });
+            return out;
+          }
+          var gone = [];
+          try { gone = JSON.parse(localStorage.getItem("jb-gone") || "[]"); } catch (g0) { gone = []; }
+          room.library = uniqueLib(room.library || []).filter(function (t) { return gone.indexOf(songKey(t)) < 0; });
+          var saved = [];
+          try { saved = uniqueLib(JSON.parse(localStorage.getItem("jb-lib") || "[]")); } catch (s0) { saved = []; }
+          saved = saved.filter(function (t) { return t && t.url && gone.indexOf(songKey(t)) < 0; });
+          if ((!room.library || !room.library.length) && saved.length && room.isAdmin) {
+            room.library = saved;
+            act("seed", { tracks: saved });
+          }
+          localStorage.setItem("jb-lib", JSON.stringify((room.library || []).slice(0, 200)));
         } catch (e0) {}
         syncAudio();
         chrome();
@@ -371,6 +383,16 @@
         chrome();
         return;
       }
+      var nameKey = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+      var have = (room.library || []).some(function (t) {
+        var k = String(t.title || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+        return k === nameKey;
+      });
+      if (have) {
+        err = file.name + " is already in the library.";
+        chrome();
+        return;
+      }
       busy = "Adding " + file.name + "…";
       err = "Adding " + file.name + "…";
       holdPaint = Date.now() + 20000;
@@ -507,7 +529,25 @@
         btn.onclick = function () { act("remove", { trackId: btn.getAttribute("data-rm") }); };
       });
       document.querySelectorAll("[data-del]").forEach(function (btn) {
-        btn.onclick = function () { act("delete", { trackId: btn.getAttribute("data-del") }); };
+        btn.onclick = function () {
+          var id = btn.getAttribute("data-del");
+          var t = (room.library || []).filter(function (x) { return x.id === id; })[0];
+          var key = t
+            ? String(t.title || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
+            : "";
+          try {
+            var gone = JSON.parse(localStorage.getItem("jb-gone") || "[]");
+            if (key && gone.indexOf(key) < 0) gone.push(key);
+            localStorage.setItem("jb-gone", JSON.stringify(gone));
+            room.library = (room.library || []).filter(function (x) {
+              var k = String(x.title || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+              return x.id !== id && k !== key;
+            });
+            localStorage.setItem("jb-lib", JSON.stringify(room.library));
+          } catch (e1) {}
+          paint();
+          act("delete", { trackId: id, title: t && t.title });
+        };
       });
     }
 

@@ -27,6 +27,7 @@ type Room = {
   connected: boolean;
   wantLive: number;
   loop: boolean;
+  deleted: string[];
 };
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
@@ -62,6 +63,7 @@ function bag() {
         connected: true,
         wantLive: 0,
         loop: true,
+        deleted: [],
       },
       audio: new Map(),
     };
@@ -78,10 +80,36 @@ function getRoom(): Room {
   const room = bag().room;
   const now = Date.now();
   room.listeners = room.listeners.filter((l) => now - l.seen < 25000);
-  if (room.current && !room.paused && room.startedAt && room.current.duration) {
-    if ((now - room.startedAt) / 1000 >= room.current.duration + 0.3) skip("sys");
-  }
+  if (!Array.isArray(room.deleted)) room.deleted = [];
+  compactLibrary();
   return room;
+}
+
+function normTitle(title: string) {
+  return String(title || "")
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function songKey(t: { id?: string; title?: string; url?: string }) {
+  return normTitle(String(t.title || "")) || String(t.url || "") || String(t.id || "");
+}
+
+function compactLibrary() {
+  const room = bag().room;
+  const gone = new Set((room.deleted || []).map(String));
+  const seen = new Set<string>();
+  const out: Track[] = [];
+  for (const t of room.library || []) {
+    const k = songKey(t);
+    if (!k || gone.has(k) || gone.has(String(t.id)) || seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  room.library = out;
 }
 
 function publicRoom(isAdmin: boolean) {
@@ -132,17 +160,16 @@ function startTrack(track: Track) {
 
 function addTrack(track: Track, playNow: boolean) {
   const room = getRoom();
-  const url = String(track.url || "");
-  const title = String(track.title || "");
-  const existing = room.library.find(
-    (t) => t.id === track.id || (url && t.url === url && t.title === title),
-  );
+  const key = songKey(track);
+  if (key && (room.deleted || []).includes(key)) {
+    room.deleted = (room.deleted || []).filter((x) => x !== key);
+  }
+  const existing = room.library.find((t) => songKey(t) === key || t.id === track.id);
   if (existing) {
     if (playNow && (!room.current || room.current.kind === "station")) startTrack(existing);
-    else if (!room.queue.some((t) => t.id === existing.id)) room.queue.push(existing);
     return room;
   }
-  room.library = [track, ...room.library.filter((t) => t.id !== track.id)].slice(0, 200);
+  room.library = [track, ...room.library].slice(0, 200);
   const idle = !room.current || room.current.kind === "station";
   if (playNow && idle) startTrack(track);
   else if (room.current && room.current.kind !== "station") room.queue.push(track);
@@ -214,12 +241,15 @@ function removeFromQueue(trackId: string) {
   return room;
 }
 
-function deleteTrack(trackId: string) {
+function deleteTrack(trackId: string, title?: string) {
   const room = getRoom();
-  room.queue = room.queue.filter((t) => t.id !== trackId);
-  room.library = room.library.filter((t) => t.id !== trackId);
+  const hit = room.library.find((t) => t.id === trackId) || room.library.find((t) => songKey(t) === normTitle(title || ""));
+  const key = hit ? songKey(hit) : normTitle(title || "") || trackId;
+  room.deleted = [...new Set([...(room.deleted || []), key, trackId])];
+  room.library = room.library.filter((t) => t.id !== trackId && songKey(t) !== key);
+  room.queue = room.queue.filter((t) => t.id !== trackId && songKey(t) !== key);
   bag().audio.delete(trackId);
-  if (room.current && room.current.id === trackId) skip("sys");
+  if (room.current && (room.current.id === trackId || songKey(room.current) === key)) skip("sys");
   return room;
 }
 
@@ -943,9 +973,10 @@ export default async function handler(req: any, res: any) {
             duration: Number(raw.duration || 0),
             kind: String(raw.kind || "mp3"),
           } as Track;
-          if (!room.library.some((x) => x.id === t.id || (x.url === t.url && x.title === t.title))) {
-            room.library.push(t);
-          }
+          const k = songKey(t);
+          if ((room.deleted || []).includes(k) || (room.deleted || []).includes(t.id)) continue;
+          if (room.library.some((x) => songKey(x) === k || x.id === t.id)) continue;
+          room.library.push(t);
         }
         return res.status(200).json(publicRoom(true));
       }
@@ -975,7 +1006,7 @@ export default async function handler(req: any, res: any) {
     }
     else if (type === "queue") queueTrack(String(body.trackId || ""), id, name);
     else if (type === "remove") removeFromQueue(String(body.trackId || ""));
-    else if (type === "delete") deleteTrack(String(body.trackId || ""));
+    else if (type === "delete") deleteTrack(String(body.trackId || ""), String(body.title || ""));
     else if (type === "addUrl") {
       const src = parseSource(String(body.url || ""));
       if (!src) return res.status(400).json({ error: "Paste a YouTube, Twitch, radio, or stream URL." });
