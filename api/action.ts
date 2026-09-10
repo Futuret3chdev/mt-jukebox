@@ -1,47 +1,47 @@
-import { addTrack, getRoom, heartbeat, newId, playPause, skip, startTrack } from "../jb-store";
+import { addTrack, getRoom, heartbeat, newId, playPause, skip, startTrack } from "./_store";
 
-export default async function handler(req: { method?: string; body?: Record<string, unknown> }, res: {
-  setHeader: (k: string, v: string) => void;
-  status: (n: number) => { json: (b: unknown) => void; end: (b?: string) => void };
-}) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Cache-Control", "no-store");
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const body = req.body || {};
+async function run(body: Record<string, unknown>) {
   const id = String(body.id || "anon");
   const name = String(body.name || "Listener");
   heartbeat(id, name);
   const type = String(body.type || "");
-  if (type === "play") return res.status(200).json(playPause(id));
-  if (type === "skip") return res.status(200).json(skip(id));
+  if (type === "play") return playPause(id);
+  if (type === "skip") return skip(id);
   if (type === "queue") {
     const room = getRoom();
     const track = room.library.find((t) => t.id === body.trackId);
     if (track) addTrack({ ...track, addedBy: name, id: newId() }, !room.current);
-    return res.status(200).json(getRoom());
+    return getRoom();
   }
   if (type === "play-now" && body.trackId) {
-    const room = getRoom();
-    const track = room.library.find((t) => t.id === body.trackId);
+    const track = getRoom().library.find((t) => t.id === body.trackId);
     if (track) startTrack({ ...track, addedBy: name, id: newId() });
-    return res.status(200).json(getRoom());
+    return getRoom();
   }
-  if (type === "spotify" && body.spotifyUri && body.title) {
-    addTrack(
-      {
-        id: newId(),
-        title: String(body.title),
-        artist: String(body.artist || "Spotify"),
-        url: String(body.spotifyUri),
-        addedBy: name,
-        duration: Number(body.duration) || 0,
-        kind: "spotify",
-        spotifyUri: String(body.spotifyUri),
-      },
-      !getRoom().current,
-    );
-    return res.status(200).json(getRoom());
+  throw new Error("Unknown action");
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as Record<string, unknown>;
+    return Response.json(await run(body));
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "action failed" }, { status: 500 });
   }
-  return res.status(400).json({ error: "Unknown action" });
+}
+
+export default async function handler(req: { method?: string; body?: Record<string, unknown> }, res?: { setHeader: Function; status: Function }) {
+  try {
+    if (req.method === "OPTIONS" && res) return res.status(200).json({ ok: true });
+    const room = await run(req.body || {});
+    if (res) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      return res.status(200).json(room);
+    }
+    return Response.json(room);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "action failed";
+    if (res) return res.status(500).json({ error: msg });
+    return Response.json({ error: msg }, { status: 500 });
+  }
 }

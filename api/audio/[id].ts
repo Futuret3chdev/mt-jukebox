@@ -1,13 +1,13 @@
-import { getAudio } from "../../jb-store";
+import { getAudio } from "../_store";
 
-export default function handler(req: { query?: { id?: string }; method?: string }, res: {
-  setHeader: (k: string, v: string) => void;
-  status: (n: number) => { json: (b: unknown) => void; end: (b?: unknown) => void };
-  end: (b?: unknown) => void;
-}) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  const id = String(req.query?.id || "");
-  const file = getAudio(id);
+export async function GET(_request: Request, ctx: { params: { id: string } }) {
+  const file = getAudio(ctx.params.id);
+  if (!file) return Response.json({ error: "Track gone — add it again" }, { status: 404 });
+  return new Response(file.buf, { headers: { "Content-Type": file.mime, "Cache-Control": "no-store" } });
+}
+
+export default function handler(req: { query?: { id?: string } }, res: any) {
+  const file = getAudio(String(req.query?.id || ""));
   if (!file) return res.status(404).json({ error: "Track gone — add it again" });
   res.setHeader("Content-Type", file.mime);
   res.setHeader("Cache-Control", "no-store");
