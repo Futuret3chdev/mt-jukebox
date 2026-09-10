@@ -121,7 +121,10 @@ export function App() {
   if (!joined) {
     return (
       <div className="app">
-        <p className="kicker">MT House</p>
+        <div className="brand">
+          <img src="/logo.png" alt="MemeTorrent" />
+          <p className="kicker">MemeTorrent</p>
+        </div>
         <h1>Jukebox</h1>
         <p style={{ color: "var(--fg-muted)" }}>
           One room. One queue. Everyone in the group hears the same track.
@@ -148,10 +151,15 @@ export function App() {
 
   return (
     <div className="app">
-      <p className="kicker">MT House · live</p>
+      <div className="brand">
+        <img src="/logo.png" alt="MemeTorrent" />
+        <p className="kicker">MemeTorrent · live</p>
+      </div>
       <h1>Jukebox</h1>
       <div className="disc-wrap">
-        <div className={room?.current && !room.paused ? "disc spin" : "disc"} />
+        <div className={room?.current && !room.paused ? "disc spin" : "disc"}>
+          <img src="/logo.png" alt="" />
+        </div>
       </div>
       <div className="now">
         <h2>{room?.current?.title ?? "Nothing on"}</h2>
