@@ -61,7 +61,11 @@
       background: var(--bg); color: var(--fg); padding: 0 12px; margin: 8px 0 16px; font: inherit;
     }
     label { font-size: 0.8rem; color: var(--muted); }
-    .hidden-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .file-btn { position: relative; display: grid; place-items: center; overflow: hidden; }
+    .file-btn input[type="file"] {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; font-size: 80px; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -72,21 +76,23 @@
   </div>
   <audio id="audio" playsinline></audio>
   <script>
-    const FALLBACK = [
-      { id: "demo-night", title: "Night Garden", artist: "MT House", url: "https://cdn.jsdelivr.net/gh/Futuret3chdev/mt-jukebox@main/public/tracks/night-garden.mp3", addedBy: "Library", duration: 16 },
-      { id: "demo-lot", title: "Lot Lights", artist: "MT House", url: "https://cdn.jsdelivr.net/gh/Futuret3chdev/mt-jukebox@main/public/tracks/lot-lights.mp3", addedBy: "Library", duration: 16 },
-      { id: "demo-empty", title: "Empty House", artist: "MT House", url: "https://cdn.jsdelivr.net/gh/Futuret3chdev/mt-jukebox@main/public/tracks/empty-house.mp3", addedBy: "Library", duration: 16 },
-    ];
+    const FALLBACK = [];
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#0a0a0b"); }
-    const me = tg && tg.initDataUnsafe && tg.initDataUnsafe.user
-      ? { id: String(tg.initDataUnsafe.user.id), name: tg.initDataUnsafe.user.first_name }
-      : { id: "guest-" + Math.random().toString(36).slice(2, 8), name: sessionStorage.getItem("jb-name") || "Guest" };
+    const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+    const tgName = u
+      ? [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || u.username || "Guest"
+      : "";
+    const me = u
+      ? { id: String(u.id), name: tgName, username: u.username || "" }
+      : { id: "guest-" + Math.random().toString(36).slice(2, 8), name: sessionStorage.getItem("jb-name") || "Guest", username: "" };
 
     let joined = false;
-    let room = { current: null, paused: true, startedAt: null, pausePos: 0, queue: [], library: FALLBACK, listeners: [], hostId: null, hostName: "" };
+    let room = { current: null, paused: true, startedAt: null, pausePos: 0, queue: [], library: [], listeners: [], hostId: null, hostName: "" };
     let err = "";
+    let lyrics = "";
+    let showLyrics = false;
     const audio = document.getElementById("audio");
 
     function fmt(s) {
@@ -111,7 +117,7 @@
         const res = await fetch("/api/room?" + q);
         if (!res.ok) throw new Error("room");
         room = await res.json();
-        err = "";
+        if (err && /room|linked|update the room/i.test(err)) err = "";
         syncAudio();
         paint();
       } catch (e) {
@@ -150,33 +156,60 @@
     }
 
     async function upload(file) {
-      err = "";
-      paint();
-      const q = new URLSearchParams({ title: file.name.replace(/\.[^.]+$/, ""), name: me.name, id: me.id });
-      const res = await fetch("/api/room?" + q, { method: "POST", body: file });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        err = data.error || "Could not add that file";
+      if (!file) return;
+      if (file.size > 4_500_000) {
+        err = file.name + " is over 4.5 MB. Drop it in SoftwareTesters instead.";
         paint();
         return;
       }
-      room = data;
-      syncAudio();
+      if (file.size < 200) {
+        err = "That pick was empty. Use Files, not Photos.";
+        paint();
+        return;
+      }
+      err = "Adding " + file.name + "…";
       paint();
+      const q = new URLSearchParams({
+        title: file.name.replace(/\.[^.]+$/, ""),
+        name: me.name,
+        id: me.id,
+      });
+      try {
+        const buf = await file.arrayBuffer();
+        const res = await fetch("/api/room?" + q, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: buf,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          err = data.error || "Could not add " + file.name;
+          paint();
+          return;
+        }
+        room = data;
+        err = "";
+        syncAudio();
+        paint();
+      } catch (e) {
+        err = "Upload blocked here. Drop the mp3 in SoftwareTesters.";
+        paint();
+      }
     }
 
     function paintJoin() {
+      const detected = u ? `Detected Telegram name: <strong>${escapeHtml(me.name)}</strong>${me.username ? " · @" + escapeHtml(me.username) : ""}` : "Name used in the room";
       document.getElementById("app").innerHTML = `
         <div class="brand"><img src="${LOGO}" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
         <h1>Jukebox</h1>
-        <p class="lead">One room. Play here is the remote. Live sound is the SoftwareTesters voice chat — close this page, music stays on.</p>
-        <label for="name">Your name</label>
-        <input id="name" type="text" value="${me.name === "Guest" ? "" : me.name}" placeholder="Name in the room" />
+        <p class="lead">Play here is the remote. Live sound is the SoftwareTesters voice chat.</p>
+        <label for="name">${detected}</label>
+        <input id="name" type="text" value="${escapeHtml(me.name === "Guest" ? "" : me.name)}" placeholder="Your name" ${u ? "readonly" : ""} />
         <button class="btn primary" id="join">Join the room</button>
-        <p class="hint">iPhone needs this tap so sound is allowed.</p>`;
+        <p class="hint">${u ? "Using your Telegram name." : "iPhone needs this tap so sound is allowed."}</p>`;
       document.getElementById("join").onclick = () => {
         const n = document.getElementById("name").value.trim();
-        if (n) { me.name = n; sessionStorage.setItem("jb-name", n); }
+        if (n && !u) { me.name = n; sessionStorage.setItem("jb-name", n); }
         joined = true;
         paint();
         pull();
@@ -185,12 +218,13 @@
       };
     }
 
-    function rows(list, withQueue) {
-      if (!list.length) return `<p class="hint">Empty</p>`;
+    function rows(list, mode) {
+      if (!list.length) return `<p class="hint">${mode === "queue" ? "Nothing queued" : "No files yet — upload one"}</p>`;
       return list.map((tr) => `
         <div class="row">
           <div><strong>${escapeHtml(tr.title)}</strong><span>${escapeHtml(tr.artist || tr.addedBy || "")}</span></div>
-          ${withQueue ? `<button data-q="${tr.id}">Queue</button>` : ""}
+          ${mode === "queue" ? `<button data-rm="${tr.id}">Remove</button>` : ""}
+          ${mode === "library" ? `<button data-q="${tr.id}">Queue</button><button data-del="${tr.id}">Delete</button>` : ""}
         </div>`).join("");
     }
 
@@ -236,32 +270,61 @@
           <button class="btn primary" id="play">${cur && !room.paused ? "Pause" : "Play"}</button>
           <button class="btn ghost" id="skip">Skip</button>
         </div>
-        <p class="meta"><span>${nListen} in the room</span><span>${room.hostId === me.id || !room.hostId ? "You have the aux" : "Host · " + escapeHtml(room.hostName || "someone")}</span></p>
+        <button class="btn ghost" id="ly" style="margin-top:-8px">${showLyrics ? "Hide lyrics" : "Lyrics"}</button>
+        ${showLyrics ? `<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">${escapeHtml(lyrics || "Looking up…")}</p></div>` : ""}
+        <p class="meta"><span>${nListen} in the room</span><span>${escapeHtml(me.name)}</span></p>
         <div class="panel">
-          <h3>Add mp3s</h3>
-          <button class="btn ghost" id="up">Upload from this phone</button>
-          <input id="file" class="hidden-file" type="file" accept="audio/*,.mp3,.m4a,.wav,.aac" multiple />
-          <p class="hint">Several files at once. Over 4.5 MB — drop them in SoftwareTesters.</p>
+          <h3>Add songs</h3>
+          <label class="file-btn btn ghost">
+            Upload from this phone
+            <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/*" multiple />
+          </label>
+          <p class="hint">Tap Upload, then <strong>Files</strong> (not Photos). Over 4.5 MB — drop the song in SoftwareTesters.</p>
         </div>
         <div class="panel">
           <h3>Up next (${(room.queue || []).length})</h3>
-          ${rows(room.queue || [], false)}
+          ${rows(room.queue || [], "queue")}
         </div>
         <div class="panel">
-          <h3>Library</h3>
-          ${rows(room.library && room.library.length ? room.library : FALLBACK, true)}
+          <h3>Your files</h3>
+          ${rows(room.library || [], "library")}
         </div>
         ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Live audio is the voice chat at the top of SoftwareTesters. This page is the remote — close it, the song keeps playing.</p>`}`;
       document.getElementById("play").onclick = () => act("play");
       document.getElementById("skip").onclick = () => act("skip");
-      document.getElementById("up").onclick = () => document.getElementById("file").click();
-      document.getElementById("file").onchange = (e) => {
+      const ly = document.getElementById("ly");
+      if (ly) ly.onclick = async () => {
+        if (showLyrics) { showLyrics = false; paint(); return; }
+        showLyrics = true;
+        lyrics = "Looking up lyrics…";
+        paint();
+        try {
+          const res = await fetch("/api/room", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "lyrics", id: me.id, name: me.name }),
+          });
+          const data = await res.json();
+          lyrics = data.lyrics || "No lyrics found.";
+        } catch {
+          lyrics = "Could not load lyrics.";
+        }
+        paint();
+      };
+      const fileEl = document.getElementById("file");
+      if (fileEl) fileEl.onchange = (e) => {
         const files = [...(e.target.files || [])];
         e.target.value = "";
         files.forEach((f) => upload(f));
       };
       document.querySelectorAll("[data-q]").forEach((btn) => {
         btn.onclick = () => act("queue", { trackId: btn.getAttribute("data-q") });
+      });
+      document.querySelectorAll("[data-rm]").forEach((btn) => {
+        btn.onclick = () => act("remove", { trackId: btn.getAttribute("data-rm") });
+      });
+      document.querySelectorAll("[data-del]").forEach((btn) => {
+        btn.onclick = () => act("delete", { trackId: btn.getAttribute("data-del") });
       });
     }
 

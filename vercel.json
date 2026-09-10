@@ -1,7 +1,7 @@
 {
-  "buildCommand": "mkdir -p dist && cp index.html dist/index.html && mkdir -p dist/logo-copy",
+  "buildCommand": "mkdir -p dist && cp index.html dist/index.html",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    { "source": "/api/telegram", "destination": "/api/room" }
   ]
 }
