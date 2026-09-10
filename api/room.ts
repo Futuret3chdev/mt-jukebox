@@ -213,6 +213,7 @@ function stripFileJunk(s: string) {
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
 const APP = "https://mt-house-jukebox.vercel.app/";
+const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9?voicechat";
 
 export const config = { api: { bodyParser: false } };
 
@@ -279,6 +280,7 @@ function menuKeyboard() {
         { text: "Queue", callback_data: "queue" },
         { text: "Lyrics", callback_data: "lyrics" },
       ],
+      [{ text: "Join live stream", url: LIVE }],
       [{ text: "Open jukebox", url: APP }],
     ],
   };
@@ -416,6 +418,17 @@ async function handleTelegram(update: any) {
       text: lyrics,
       reply_markup: { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] },
     });
+  } else if (cmd === "/live" || cmd === "live" || /^\/live(@\w+)?$/.test(cmd)) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Tap Join live stream — that's the sound. Close the jukebox, the stream keeps going.",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Join live stream", url: LIVE }],
+          [{ text: "Open jukebox", url: APP }],
+        ],
+      },
+    });
   } else if (/^\/(start|jukebox|menu)(@\w+)?$/.test(cmd) || cmd === "menu") {
     await tg("sendMessage", {
       chat_id: chatId,
@@ -437,6 +450,7 @@ async function setupBot() {
       { command: "skip", description: "Next track" },
       { command: "queue", description: "Show and remove queued songs" },
       { command: "lyrics", description: "Lyrics for what's playing" },
+      { command: "live", description: "Join the live stream" },
       { command: "jukebox", description: "Open the jukebox" },
     ],
   });

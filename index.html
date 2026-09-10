@@ -77,7 +77,7 @@
   <audio id="audio" playsinline></audio>
   <script>
     const FALLBACK = [];
-    const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
+    const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9?voicechat";
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#0a0a0b"); }
     const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
@@ -107,8 +107,13 @@
       if (!room.startedAt) return 0;
       return Math.max(0, (Date.now() - room.startedAt) / 1000);
     }
-    function abs(url) {
-      try { return new URL(url, location.origin).href; } catch { return url; }
+    function openLive() {
+      try {
+        if (tg && tg.openTelegramLink) tg.openTelegramLink(LIVE);
+        else window.location.href = LIVE;
+      } catch (e) {
+        window.location.href = LIVE;
+      }
     }
 
     async function pull() {
@@ -202,11 +207,11 @@
       document.getElementById("app").innerHTML = `
         <div class="brand"><img src="${LOGO}" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
         <h1>Jukebox</h1>
-        <p class="lead">Play here is the remote. Live sound is the SoftwareTesters voice chat.</p>
+        <p class="lead">This page is the remote. Sound is the SoftwareTesters <strong>live stream</strong> — Play opens it. Close this page, music stays on.</p>
         <label for="name">${detected}</label>
         <input id="name" type="text" value="${escapeHtml(me.name === "Guest" ? "" : me.name)}" placeholder="Your name" ${u ? "readonly" : ""} />
-        <button class="btn primary" id="join">Join the room</button>
-        <p class="hint">${u ? "Using your Telegram name." : "iPhone needs this tap so sound is allowed."}</p>`;
+        <button class="btn primary" id="join">Join and open live</button>
+        <p class="hint">${u ? "Using your Telegram name. Play opens the group live stream so you can close this page." : "iPhone needs this tap so sound is allowed."}</p>`;
       document.getElementById("join").onclick = () => {
         const n = document.getElementById("name").value.trim();
         if (n && !u) { me.name = n; sessionStorage.setItem("jb-name", n); }
@@ -215,6 +220,7 @@
         pull();
         setInterval(pull, 1000);
         setInterval(() => { if (joined) tickBar(); }, 250);
+        openLive();
       };
     }
 
@@ -270,6 +276,7 @@
           <button class="btn primary" id="play">${cur && !room.paused ? "Pause" : "Play"}</button>
           <button class="btn ghost" id="skip">Skip</button>
         </div>
+        <button class="btn primary" id="live" style="margin-top:-8px;margin-bottom:12px">Join live stream</button>
         <button class="btn ghost" id="ly" style="margin-top:-8px">${showLyrics ? "Hide lyrics" : "Lyrics"}</button>
         ${showLyrics ? `<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">${escapeHtml(lyrics || "Looking up…")}</p></div>` : ""}
         <p class="meta"><span>${nListen} in the room</span><span>${escapeHtml(me.name)}</span></p>
@@ -289,9 +296,15 @@
           <h3>Your files</h3>
           ${rows(room.library || [], "library")}
         </div>
-        ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Live audio is the voice chat at the top of SoftwareTesters. This page is the remote — close it, the song keeps playing.</p>`}`;
-      document.getElementById("play").onclick = () => act("play");
+        ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Sound is the SoftwareTesters live stream. Tap Join live (Play does it too). Close this page — the stream keeps going.</p>`}`;
+      document.getElementById("play").onclick = () => {
+        const startLive = !room.current || room.paused;
+        act("play");
+        if (startLive) openLive();
+      };
       document.getElementById("skip").onclick = () => act("skip");
+      const liveBtn = document.getElementById("live");
+      if (liveBtn) liveBtn.onclick = () => openLive();
       const ly = document.getElementById("ly");
       if (ly) ly.onclick = async () => {
         if (showLyrics) { showLyrics = false; paint(); return; }
