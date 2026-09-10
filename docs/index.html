@@ -169,7 +169,7 @@
       document.getElementById("app").innerHTML = `
         <div class="brand"><img src="${LOGO}" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
         <h1>Jukebox</h1>
-        <p class="lead">One room. Everyone who opens this hears the same track at the same time.</p>
+        <p class="lead">One room. Play here is the remote. Live sound is the SoftwareTesters voice chat — close this page, music stays on.</p>
         <label for="name">Your name</label>
         <input id="name" type="text" value="${me.name === "Guest" ? "" : me.name}" placeholder="Name in the room" />
         <button class="btn primary" id="join">Join the room</button>
@@ -251,7 +251,7 @@
           <h3>Library</h3>
           ${rows(room.library && room.library.length ? room.library : FALLBACK, true)}
         </div>
-        ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Keep this open to hear the room. Play also posts the track in SoftwareTesters.</p>`}`;
+        ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Live audio is the voice chat at the top of SoftwareTesters. This page is the remote — close it, the song keeps playing.</p>`}`;
       document.getElementById("play").onclick = () => act("play");
       document.getElementById("skip").onclick = () => act("skip");
       document.getElementById("up").onclick = () => document.getElementById("file").click();
