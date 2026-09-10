@@ -72,11 +72,11 @@
     <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>
     <h1>MT Radio</h1>
     <p class="lead">Made by FutureT3ch and MemeTorrent. Tap Join live — that opens the group voice chat.</p>
-    <a class="btn primary" href="https://t.me/c/2671373361?voicechat">Join live stream</a>
+    <a class="btn primary" href="https://t.me/+WgogJ0YgKAQzN2Q9">Join live stream</a>
   </div>
   <audio id="audio" playsinline></audio>
   <script>
-    const LIVE = "https://t.me/c/2671373361?voicechat";
+    const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
     const STATION = "MT Radio";
@@ -123,17 +123,16 @@
       return room.live || LIVE;
     }
     function openLive(e) {
-      if (e) e.preventDefault();
       var href = liveHref();
       try {
         if (tg && tg.openTelegramLink) {
+          if (e) e.preventDefault();
           tg.openTelegramLink(href);
-          setTimeout(function () { try { if (tg.close) tg.close(); } catch (e2) {} }, 400);
+          setTimeout(function () { try { if (tg.close) tg.close(); } catch (e2) {} }, 250);
           return false;
         }
       } catch (err) {}
-      try { window.location.href = href; } catch (e3) {}
-      return false;
+      return true;
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }

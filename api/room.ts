@@ -25,7 +25,7 @@ type Room = {
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
 const APP = "https://mt-house-jukebox.vercel.app/";
-const LIVE = "https://t.me/c/2671373361?voicechat";
+const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
 const INVITE = "https://t.me/+WgogJ0YgKAQzN2Q9";
 const GROUP = -1002671373361;
 const BOT_DM = "https://t.me/Mtradiobot?start=menu";
@@ -427,25 +427,229 @@ function queueKeyboard() {
   return { inline_keyboard: rows };
 }
 
-async function sendMenu(chat: any, extra?: string, admin = true) {
-  const chatId = typeof chat === "object" ? chat.id : chat;
-  const priv = typeof chat === "object" ? isPrivateChat(chat) : chatId > 0;
-  if (!priv) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: (extra ? extra + "\n\n" : "") + "The menu only opens in DMs with @Mtradiobot.",
-      reply_markup: dmKeyboard(),
-    });
-    return;
-  }
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: (extra ? extra + "\n\n" : "") + nowText(),
-    reply_markup: menuKeyboard(admin),
+async function wipe(chat: any, messageId?: number) {
+  if (!chat || isPrivateChat(chat) || !messageId) return;
+  await tg("deleteMessage", { chat_id: chat.id, message_id: messageId });
+}
+
+async function dmUser(from: any, text: string, markup: any) {
+  return tg("sendMessage", {
+    chat_id: from.id,
+    text,
+    reply_markup: markup,
   });
 }
 
+async function shortcutToDm(from: any, chat: any, messageId: number | undefined, text: string, markup: any) {
+  await wipe(chat, messageId);
+  const r = await dmUser(from, text, markup);
+  if (r && r.ok) return true;
+  if (chat && !isPrivateChat(chat)) {
+    await tg("sendMessage", {
+      chat_id: chat.id,
+      text: "Open @Mtradiobot, tap Start, then the menu opens in DMs.",
+      reply_markup: dmKeyboard(),
+    });
+  }
+  return false;
+}
+
+async function sendMenu(from: any, chat: any, messageId?: number, extra?: string, admin = true) {
+  const text = (extra ? extra + "\n\n" : "") + nowText();
+  const markup = menuKeyboard(admin);
+  if (isPrivateChat(chat)) {
+    await tg("sendMessage", { chat_id: chat.id, text, reply_markup: markup });
+    return;
+  }
+  await shortcutToDm(from, chat, messageId, text, markup);
+}
+
 async function handleTelegram(update: any) {
+  const cb = update.callback_query;
+  if (cb) {
+    const from = cb.from;
+    const id = String(from?.id || "tg");
+    const name = tgName(from);
+    const data = String(cb.data || "");
+    const admin = await isAdmin(id);
+    heartbeat(id, name);
+    const chat = cb.message?.chat;
+    const priv = isPrivateChat(chat);
+    let text = nowText();
+    let markup: any = menuKeyboard(admin);
+    if (!admin && ["play", "pause", "skip"].includes(data)) {
+      text = "Only group admins can DJ.\n\n" + nowText();
+      markup = liveKeyboard();
+    } else if (data === "play") {
+      play(id, name);
+      text = nowText();
+    } else if (data === "pause") {
+      pause(id, name);
+      text = nowText();
+    } else if (data === "skip") {
+      skip(id, name);
+      text = nowText();
+    } else if (data === "queue") {
+      const room = getRoom();
+      text = room.queue.length
+        ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
+        : "Queue is empty.";
+      markup = admin ? queueKeyboard() : liveKeyboard();
+    } else if (data === "lyrics") {
+      text = (await lyricsFor(getRoom().current)).slice(0, 3500);
+      markup = { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] };
+    } else if (data === "menu") {
+      text = nowText();
+      markup = menuKeyboard(admin);
+    } else if (data.startsWith("rm:")) {
+      if (admin) removeFromQueue(data.slice(3));
+      const room = getRoom();
+      text = room.queue.length
+        ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title).join("\n")
+        : "Queue is empty.";
+      markup = admin ? queueKeyboard() : liveKeyboard();
+    } else if (data.startsWith("del:")) {
+      if (admin) deleteTrack(data.slice(4));
+      text = nowText();
+      markup = menuKeyboard(admin);
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cb.id });
+    if (!priv) {
+      await shortcutToDm(from, chat, cb.message?.message_id, text, markup);
+      return;
+    }
+    try {
+      await tg("editMessageText", {
+        chat_id: chat.id,
+        message_id: cb.message.message_id,
+        text,
+        reply_markup: markup,
+      });
+    } catch {
+      await tg("sendMessage", { chat_id: chat.id, text, reply_markup: markup });
+    }
+    return;
+  }
+
+  const msg = update.message;
+  if (!msg) return;
+  const chatId = msg.chat.id;
+  const from = msg.from;
+  const id = String(from?.id || "tg");
+  const name = tgName(from);
+  heartbeat(id, name);
+  const admin = await isAdmin(id);
+  const priv = isPrivateChat(msg.chat);
+
+  const audio = msg.audio;
+  const doc = msg.document;
+  const isMp3 = Boolean(audio) || (doc && /audio|mpeg|mp3|m4a|wav|aac|ogg|flac/i.test(`${doc.mime_type || ""} ${doc.file_name || ""}`));
+  if (isMp3) {
+    if (!admin) {
+      const deny = "Only group admins can add tracks. Tap Join live to listen.";
+      if (priv) {
+        await tg("sendMessage", { chat_id: chatId, text: deny, reply_markup: liveKeyboard() });
+      } else {
+        await shortcutToDm(from, msg.chat, undefined, deny, liveKeyboard());
+      }
+      return;
+    }
+    const fileId = audio?.file_id || doc?.file_id;
+    if (!fileId) return;
+    const title = audio?.title || (doc?.file_name || "Untitled").replace(/\.[^.]+$/, "");
+    addTrack(
+      {
+        id: newId(),
+        title,
+        artist: audio?.performer || name,
+        url: "/api/room?tgfile=" + fileId,
+        addedBy: name,
+        duration: audio?.duration || 0,
+        kind: "mp3",
+      },
+      !getRoom().current,
+    );
+    const queued = "Queued on MT Radio: " + title + "\n\n" + nowText();
+    if (priv) {
+      await tg("sendMessage", { chat_id: chatId, text: queued, reply_markup: menuKeyboard(true) });
+    } else {
+      await shortcutToDm(from, msg.chat, undefined, queued, menuKeyboard(true));
+    }
+    return;
+  }
+
+  const text = String(msg.text || "");
+  const src = parseSource(text);
+  const cmd = text.replace(/@\w+/, "").trim().toLowerCase();
+  const isSlash = cmd.startsWith("/");
+
+  if (src && !isSlash && admin) {
+    const title = src.title === src.kind || src.title === "YouTube" || src.title === "Twitch" ? src.title + " stream" : src.title;
+    addTrack(
+      {
+        id: newId(),
+        title,
+        artist: src.artist,
+        url: src.url,
+        addedBy: name,
+        duration: 0,
+        kind: src.kind,
+      },
+      !getRoom().current,
+    );
+    const queued = "Queued on MT Radio: " + title + "\n\n" + nowText();
+    if (priv) {
+      await tg("sendMessage", { chat_id: chatId, text: queued, reply_markup: menuKeyboard(true) });
+    } else {
+      await shortcutToDm(from, msg.chat, undefined, queued, menuKeyboard(true));
+    }
+    return;
+  }
+
+  if (!priv && !isSlash) return;
+
+  if (cmd === "/play" || cmd === "play" || cmd === "▶️ play") {
+    if (!admin) return void sendMenu(from, msg.chat, msg.message_id, "Only group admins can DJ.", false);
+    play(id, name);
+    await sendMenu(from, msg.chat, msg.message_id, undefined, true);
+  } else if (cmd === "/pause" || cmd === "pause" || cmd === "⏸ pause") {
+    if (!admin) return void sendMenu(from, msg.chat, msg.message_id, "Only group admins can DJ.", false);
+    pause(id, name);
+    await sendMenu(from, msg.chat, msg.message_id, undefined, true);
+  } else if (cmd === "/skip" || cmd === "skip" || cmd === "⏭ skip") {
+    if (!admin) return void sendMenu(from, msg.chat, msg.message_id, "Only group admins can DJ.", false);
+    skip(id, name);
+    await sendMenu(from, msg.chat, msg.message_id, undefined, true);
+  } else if (cmd === "/queue" || cmd === "queue" || cmd === "📋 queue") {
+    const room = getRoom();
+    const q = room.queue.length
+      ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
+      : "Queue is empty.";
+    const body = q + "\n\n" + nowText();
+    const markup = admin ? queueKeyboard() : liveKeyboard();
+    if (priv) await tg("sendMessage", { chat_id: chatId, text: body, reply_markup: markup });
+    else await shortcutToDm(from, msg.chat, msg.message_id, body, markup);
+  } else if (cmd === "/lyrics" || cmd === "lyrics" || cmd === "🎤 lyrics") {
+    const lyrics = (await lyricsFor(getRoom().current)).slice(0, 3500);
+    const markup = { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] };
+    if (priv) await tg("sendMessage", { chat_id: chatId, text: lyrics, reply_markup: markup });
+    else await shortcutToDm(from, msg.chat, msg.message_id, lyrics, markup);
+  } else if (cmd === "/live" || cmd === "live" || /^\/live(@\w+)?$/.test(cmd) || cmd === "/now" || cmd === "/now") {
+    const body = nowText() + "\n\nTap Join MT Radio live — voice chat at the top of SoftwareTesters.";
+    if (priv) await tg("sendMessage", { chat_id: chatId, text: body, reply_markup: liveKeyboard() });
+    else await shortcutToDm(from, msg.chat, msg.message_id, body, liveKeyboard());
+  } else if (/^\/(start|jukebox|menu)(@\w+)?/.test(cmd) || cmd === "menu") {
+    if (!admin) {
+      const body = "MT Radio is on air.\n" + STATION.tagline + "\n\nEveryone can listen. Only admins can add music.";
+      if (priv) await tg("sendMessage", { chat_id: chatId, text: body, reply_markup: liveKeyboard() });
+      else await shortcutToDm(from, msg.chat, msg.message_id, body, liveKeyboard());
+      return;
+    }
+    await sendMenu(from, msg.chat, msg.message_id, "DJ: " + name, true);
+  } else if (isSlash && !priv) {
+    await shortcutToDm(from, msg.chat, msg.message_id, nowText(), menuKeyboard(admin));
+  }
+}
   const cb = update.callback_query;
   if (cb) {
     const from = cb.from;
@@ -643,8 +847,8 @@ async function handleTelegram(update: any) {
 
 async function setupBot() {
   const g = globalThis as any;
-  if (g.__jbBotReady === "dm-menu-1") return;
-  g.__jbBotReady = "dm-menu-1";
+  if (g.__jbBotReady === "dm-menu-2") return;
+  g.__jbBotReady = "dm-menu-2";
   const groupCmds = [
     { command: "live", description: "Join MT Radio live" },
     { command: "now", description: "What's playing" },
