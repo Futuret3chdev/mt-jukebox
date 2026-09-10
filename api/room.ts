@@ -445,16 +445,8 @@ async function dmUser(from: any, text: string, markup: any) {
 
 async function shortcutToDm(from: any, chat: any, messageId: number | undefined, text: string, markup: any) {
   await wipe(chat, messageId);
-  const r = await dmUser(from, text, markup);
-  if (r && r.ok) return true;
-  if (chat && !isPrivateChat(chat)) {
-    await tg("sendMessage", {
-      chat_id: chat.id,
-      text: "Open @Mtradiobot, tap Start, then the menu opens in DMs.",
-      reply_markup: dmKeyboard(),
-    });
-  }
-  return false;
+  await dmUser(from, text, markup);
+  return true;
 }
 
 async function sendMenu(from: any, chat: any, messageId?: number, extra?: string, admin = true) {
@@ -552,12 +544,7 @@ async function handleTelegram(update: any) {
   const isMp3 = Boolean(audio || voice) || Boolean(video && /\.(mp4|mkv|webm|mov|m4v)$/i.test(video.file_name || "")) || (doc && /audio|mpeg|mp3|m4a|wav|aac|ogg|flac|opus|wma|aiff/i.test(`${doc.mime_type || ""} ${doc.file_name || ""}`)) || /\.(mp3|m4a|wav|aac|ogg|flac|opus|wma|aiff|oga)$/i.test(fname);
   if (isMp3) {
     if (!admin) {
-      const deny = "Only group admins can add tracks. Tap Join live to listen.";
-      if (priv) {
-        await tg("sendMessage", { chat_id: chatId, text: deny, reply_markup: liveKeyboard() });
-      } else {
-        await shortcutToDm(from, msg.chat, undefined, deny, liveKeyboard());
-      }
+      if (priv) await tg("sendMessage", { chat_id: chatId, text: "Only group admins can add tracks. Tap Join live to listen.", reply_markup: liveKeyboard() });
       return;
     }
     const fileId = audio?.file_id || voice?.file_id || video?.file_id || doc?.file_id;
@@ -579,11 +566,8 @@ async function handleTelegram(update: any) {
       !getRoom().current,
     );
     const queued = "Queued on MT Radio: " + title + "\n\n" + nowText();
-    if (priv) {
-      await tg("sendMessage", { chat_id: chatId, text: queued, reply_markup: menuKeyboard(true) });
-    } else {
-      await shortcutToDm(from, msg.chat, undefined, queued, menuKeyboard(true));
-    }
+    if (priv) await tg("sendMessage", { chat_id: chatId, text: queued, reply_markup: menuKeyboard(true) });
+    else await dmUser(from, queued, menuKeyboard(true));
     return;
   }
 
@@ -591,6 +575,14 @@ async function handleTelegram(update: any) {
   const src = parseSource(text);
   const cmd = text.replace(/@\w+/, "").trim().toLowerCase();
   const isSlash = cmd.startsWith("/");
+
+  if (!priv) {
+    if (isSlash) {
+      await wipe(msg.chat, msg.message_id);
+      await dmUser(from, nowText(), admin ? menuKeyboard(true) : liveKeyboard());
+    }
+    return;
+  }
 
   if (src && !isSlash && admin) {
     const title = src.title === src.kind || src.title === "YouTube" || src.title === "Twitch" ? src.title + " stream" : src.title;
@@ -661,8 +653,8 @@ async function handleTelegram(update: any) {
 }
 async function setupBot() {
   const g = globalThis as any;
-  if (g.__jbBotReady === "dm-menu-2") return;
-  g.__jbBotReady = "dm-menu-2";
+  if (g.__jbBotReady === "silent-group-1") return;
+  g.__jbBotReady = "silent-group-1";
   const groupCmds = [
     { command: "live", description: "Join MT Radio live" },
     { command: "now", description: "What's playing" },
