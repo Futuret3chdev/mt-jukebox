@@ -71,7 +71,10 @@ def load_lib():
     out = []
     for t in rows:
         k = title_key(t)
-        if not k or k in gone or k in seen:
+        tid = str((t or {}).get("id") or "")
+        if not k or k in seen:
+            continue
+        if tid and len(tid) > 4 and tid in gone:
             continue
         seen.add(k)
         out.append(t)

@@ -226,15 +226,23 @@
           }
           var gone = [];
           try { gone = JSON.parse(localStorage.getItem("jb-gone") || "[]"); } catch (g0) { gone = []; }
-          room.library = uniqueLib(room.library || []).filter(function (t) { return gone.indexOf(songKey(t)) < 0; });
+          gone = (gone || []).filter(function (x) { return String(x).length > 4; });
+          function notGone(t) {
+            return gone.indexOf(t.id) < 0;
+          }
+          var server = uniqueLib(room.library || []).filter(notGone);
           var saved = [];
           try { saved = uniqueLib(JSON.parse(localStorage.getItem("jb-lib") || "[]")); } catch (s0) { saved = []; }
-          saved = saved.filter(function (t) { return t && t.url && gone.indexOf(songKey(t)) < 0; });
-          if ((!room.library || !room.library.length) && saved.length && room.isAdmin) {
-            room.library = saved;
-            act("seed", { tracks: saved });
+          saved = saved.filter(function (t) { return t && t.url && notGone(t); });
+          var merged = uniqueLib(server.concat(saved));
+          room.library = merged;
+          if (room.isAdmin && saved.length) {
+            var extra = saved.filter(function (t) {
+              return !server.some(function (s) { return songKey(s) === songKey(t) || s.id === t.id; });
+            });
+            if (extra.length || (server.length === 0 && saved.length)) act("seed", { tracks: saved });
           }
-          localStorage.setItem("jb-lib", JSON.stringify((room.library || []).slice(0, 200)));
+          localStorage.setItem("jb-lib", JSON.stringify(merged.slice(0, 200)));
         } catch (e0) {}
         syncAudio();
         chrome();
@@ -358,28 +366,28 @@
 
     async function hostFile(file) {
       try {
+        var fd2 = new FormData();
+        fd2.append("reqtype", "fileupload");
+        fd2.append("fileToUpload", file);
+        var r2 = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: fd2 });
+        var t = (await r2.text()).trim();
+        if (t.indexOf("http") === 0) return t;
+      } catch (e) {}
+      try {
+        var fd3 = new FormData();
+        fd3.append("reqtype", "fileupload");
+        fd3.append("fileToUpload", file);
+        var r3 = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", { method: "POST", body: fd3 });
+        var t3 = (await r3.text()).trim();
+        if (t3.indexOf("http") === 0) return t3;
+      } catch (e2) {}
+      try {
         var fd = new FormData();
         fd.append("file", file);
         var r = await fetch("https://tmpfiles.org/api/v1/upload", { method: "POST", body: fd });
         var j = await r.json();
         var u = j && j.data && j.data.url;
         if (u) return String(u).replace("://tmpfiles.org/", "://tmpfiles.org/dl/");
-      } catch (e) {}
-      try {
-        var fd2 = new FormData();
-        fd2.append("reqtype", "fileupload");
-        fd2.append("fileToUpload", file);
-        var r2 = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", { method: "POST", body: fd2 });
-        var t = (await r2.text()).trim();
-        if (t.indexOf("http") === 0) return t;
-      } catch (e2) {}
-      try {
-        var fd3 = new FormData();
-        fd3.append("reqtype", "fileupload");
-        fd3.append("fileToUpload", file);
-        var r3 = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: fd3 });
-        var t3 = (await r3.text()).trim();
-        if (t3.indexOf("http") === 0) return t3;
       } catch (e3) {}
       return "";
     }
@@ -418,6 +426,7 @@
       chrome();
       try {
         var posted = false;
+        var durable = await hostFile(file);
         if (file.size < 4200000) {
           try {
             var up = await fetch("/api/room?title=" + encodeURIComponent(file.name.replace(/\.[^.]+$/, "")) + "&name=" + encodeURIComponent(me.name) + "&id=" + encodeURIComponent(me.id), {
@@ -432,16 +441,16 @@
             }
           } catch (e0) {}
         }
-        if (!posted) {
-          const url = await hostFile(file);
-          if (!url) {
-            err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
-            busy = "";
-            chrome();
-            return;
-          }
+        if (durable) {
           var idle = !room.current || room.current.kind === "station";
-          await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, ""), playNow: idle });
+          await act("addUrl", { url: durable, title: file.name.replace(/\.[^.]+$/, ""), playNow: !posted && idle });
+          posted = true;
+        }
+        if (!posted) {
+          err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
+          busy = "";
+          chrome();
+          return;
         }
         wantPlay = true;
         busy = "";
@@ -569,17 +578,12 @@
         btn.onclick = function () {
           var id = btn.getAttribute("data-del");
           var t = (room.library || []).filter(function (x) { return x.id === id; })[0];
-          var key = t
-            ? String(t.title || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
-            : "";
           try {
             var gone = JSON.parse(localStorage.getItem("jb-gone") || "[]");
-            if (key && gone.indexOf(key) < 0) gone.push(key);
+            gone = (gone || []).filter(function (x) { return String(x).length > 4; });
+            if (id && gone.indexOf(id) < 0) gone.push(id);
             localStorage.setItem("jb-gone", JSON.stringify(gone));
-            room.library = (room.library || []).filter(function (x) {
-              var k = String(x.title || "").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-              return x.id !== id && k !== key;
-            });
+            room.library = (room.library || []).filter(function (x) { return x.id !== id; });
             localStorage.setItem("jb-lib", JSON.stringify(room.library));
           } catch (e1) {}
           paint();
