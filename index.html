@@ -192,16 +192,39 @@
       else audio.play().catch(function () {});
     }
 
+    async function hostFile(file) {
+      try {
+        var fd = new FormData();
+        fd.append("file", file);
+        var r = await fetch("https://tmpfiles.org/api/v1/upload", { method: "POST", body: fd });
+        var j = await r.json();
+        var u = j && j.data && j.data.url;
+        if (u) return String(u).replace("://tmpfiles.org/", "://tmpfiles.org/dl/");
+      } catch (e) {}
+      try {
+        var fd2 = new FormData();
+        fd2.append("reqtype", "fileupload");
+        fd2.append("fileToUpload", file);
+        var r2 = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", { method: "POST", body: fd2 });
+        var t = (await r2.text()).trim();
+        if (t.indexOf("http") === 0) return t;
+      } catch (e2) {}
+      try {
+        var fd3 = new FormData();
+        fd3.append("reqtype", "fileupload");
+        fd3.append("fileToUpload", file);
+        var r3 = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: fd3 });
+        var t3 = (await r3.text()).trim();
+        if (t3.indexOf("http") === 0) return t3;
+      } catch (e3) {}
+      return "";
+    }
+
     async function upload(file) {
       bootRoom();
       if (!file) return;
       if (!room.isAdmin) {
         err = "Only group admins can add tracks. Tap Join live to listen.";
-        paint();
-        return;
-      }
-      if (file.size > 4500000) {
-        err = file.name + " is over 4.5 MB. Drop it in SoftwareTesters instead.";
         paint();
         return;
       }
@@ -212,12 +235,22 @@
       }
       err = "Adding " + file.name + "…";
       paint();
-      const q = new URLSearchParams({
-        title: file.name.replace(/\.[^.]+$/, ""),
-        name: me.name,
-        id: me.id,
-      });
       try {
+        if (file.size > 3500000) {
+          const url = await hostFile(file);
+          if (!url) {
+            err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
+            paint();
+            return;
+          }
+          await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, "") });
+          return;
+        }
+        const q = new URLSearchParams({
+          title: file.name.replace(/\.[^.]+$/, ""),
+          name: me.name,
+          id: me.id,
+        });
         const buf = await file.arrayBuffer();
         const res = await fetch("/api/room?" + q, {
           method: "POST",
@@ -235,7 +268,7 @@
         syncAudio();
         paint();
       } catch (e) {
-        err = "Upload blocked here. Drop the mp3 in SoftwareTesters.";
+        err = "Could not add " + file.name + ". Send it to @Mtradiobot.";
         paint();
       }
     }
@@ -310,7 +343,7 @@
         (admin
           ? '<div class="panel"><h3>Add songs</h3>' +
             '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />' +
-            '<p class="hint">Files, not Photos. Over 4.5 MB — send it in SoftwareTesters.</p>' +
+            '<p class="hint">Files, not Photos. Any size.</p>' +
             "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
             '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
             '<button class="btn ghost" id="addurl">Add stream</button></div>' +

@@ -9,6 +9,9 @@ type Track = {
   duration: number;
   kind?: string;
   spotifyUri?: string;
+  tgChatId?: number;
+  tgMessageId?: number;
+  fileSize?: number;
 };
 type Room = {
   hostId: string | null;
@@ -543,7 +546,10 @@ async function handleTelegram(update: any) {
 
   const audio = msg.audio;
   const doc = msg.document;
-  const isMp3 = Boolean(audio) || (doc && /audio|mpeg|mp3|m4a|wav|aac|ogg|flac/i.test(`${doc.mime_type || ""} ${doc.file_name || ""}`));
+  const voice = msg.voice;
+  const video = msg.video;
+  const fname = `${audio?.file_name || ""} ${doc?.file_name || ""} ${doc?.mime_type || ""} ${audio?.mime_type || ""}`;
+  const isMp3 = Boolean(audio || voice) || Boolean(video && /\.(mp4|mkv|webm|mov|m4v)$/i.test(video.file_name || "")) || (doc && /audio|mpeg|mp3|m4a|wav|aac|ogg|flac|opus|wma|aiff/i.test(`${doc.mime_type || ""} ${doc.file_name || ""}`)) || /\.(mp3|m4a|wav|aac|ogg|flac|opus|wma|aiff|oga)$/i.test(fname);
   if (isMp3) {
     if (!admin) {
       const deny = "Only group admins can add tracks. Tap Join live to listen.";
@@ -554,9 +560,9 @@ async function handleTelegram(update: any) {
       }
       return;
     }
-    const fileId = audio?.file_id || doc?.file_id;
+    const fileId = audio?.file_id || voice?.file_id || video?.file_id || doc?.file_id;
     if (!fileId) return;
-    const title = audio?.title || (doc?.file_name || "Untitled").replace(/\.[^.]+$/, "");
+    const title = audio?.title || (doc?.file_name || video?.file_name || "Untitled").replace(/\.[^.]+$/, "");
     addTrack(
       {
         id: newId(),
@@ -564,8 +570,11 @@ async function handleTelegram(update: any) {
         artist: audio?.performer || name,
         url: "/api/room?tgfile=" + fileId,
         addedBy: name,
-        duration: audio?.duration || 0,
-        kind: "mp3",
+        duration: audio?.duration || voice?.duration || video?.duration || 0,
+        kind: "tg",
+        tgChatId: chatId,
+        tgMessageId: msg.message_id,
+        fileSize: audio?.file_size || voice?.file_size || video?.file_size || doc?.file_size || 0,
       },
       !getRoom().current,
     );
@@ -762,9 +771,6 @@ export default async function handler(req: any, res: any) {
       const audioBuf = extractAudio(req, raw);
       if (audioBuf.length < 200) {
         return res.status(400).json({ error: "That file did not arrive — pick it from Files, not Photos" });
-      }
-      if (audioBuf.length > 4500000) {
-        return res.status(400).json({ error: "Over 4.5 MB — drop the mp3 in SoftwareTesters" });
       }
       const mimeHead = String(req.headers?.["content-type"] || "audio/mpeg").split(";")[0] || "audio/mpeg";
       const mime = mimeHead.includes("multipart") ? "audio/mpeg" : mimeHead;
