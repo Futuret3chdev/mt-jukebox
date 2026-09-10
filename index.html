@@ -66,6 +66,7 @@
     label { font-size: 0.8rem; color: var(--muted); }
     input[type="file"] { width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit; }
     .made { margin-top: 20px; color: var(--dim); font-size: 0.75rem; letter-spacing: 0.04em; text-align: center; }
+    #videowrap { max-width: 28rem; margin: 0 auto; padding: 0 16px 28px; }
   </style>
 </head>
 <body>
@@ -92,6 +93,7 @@
       <button class="btn ghost" id="addurl" type="button">Add stream</button>
     </div>
   </div>
+  <div id="videowrap"></div>
   <audio id="audio" playsinline></audio>
   <script>
     const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
@@ -146,13 +148,14 @@
     }
     function openLive(e) {
       if (e) e.preventDefault();
+      syncAudio();
+      ensureVideo();
       try {
         if (tg && tg.openTelegramLink) {
           tg.openTelegramLink(LIVE);
           return false;
         }
       } catch (err) {}
-      try { location.href = LIVE; } catch (e2) {}
       return false;
     }
     function abs(url) {
@@ -216,20 +219,55 @@
       return m ? m[1] : "";
     }
     function syncAudio() {
-      if (!room.current || room.current.kind === "spotify" || room.current.kind === "station") {
+      if (!room.current || room.paused || room.current.kind === "station") {
         try { audio.pause(); } catch (e) {}
         return;
       }
-      if (["youtube", "twitch", "kick", "radio"].indexOf(room.current.kind || "") >= 0) {
+      if (["youtube", "twitch", "kick"].indexOf(room.current.kind || "") >= 0) {
         try { audio.pause(); } catch (e) {}
         return;
       }
       const href = abs(room.current.url);
-      if (href && audio.src !== href) audio.src = room.current.url;
+      if (href && audio.src !== href) {
+        try { audio.src = href; } catch (e) {}
+      }
       const want = pos();
-      if (Math.abs((audio.currentTime || 0) - want) > 0.9) audio.currentTime = want;
-      if (room.paused) audio.pause();
-      else audio.play().catch(function () {});
+      if (audio.src && Math.abs((audio.currentTime || 0) - want) > 1.2) {
+        try { audio.currentTime = want; } catch (e2) {}
+      }
+      audio.play().catch(function () {});
+    }
+    function ensureVideo() {
+      var wrap = document.getElementById("videowrap");
+      if (!wrap) return;
+      var cur = room.current;
+      if (!cur || room.paused) {
+        if (!cur) { wrap.innerHTML = ""; ensureVideo.key = ""; }
+        return;
+      }
+      var key = cur.id + ":" + (cur.kind || "");
+      if (ensureVideo.key === key && wrap.firstChild) return;
+      ensureVideo.key = key;
+      var t = Math.max(0, Math.floor(pos()));
+      if (cur.kind === "youtube") {
+        var id = ytId(cur.url);
+        wrap.innerHTML = id
+          ? '<div class="cover-wrap"><img src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg" alt="" style="width:100%;border-radius:12px;display:block" /></div>' +
+            '<iframe src="https://www.youtube-nocookie.com/embed/' + id + "?start=" + t + '&autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
+          : "";
+      } else if (cur.kind === "twitch") {
+        var ch = twitchChan(cur.url);
+        wrap.innerHTML = ch
+          ? '<iframe src="https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=mt-house-jukebox.vercel.app&autoplay=true" allow="autoplay;fullscreen" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
+          : "";
+      } else if (cur.kind === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(cur.url || "")) {
+        wrap.innerHTML = '<video src="' + escapeHtml(abs(cur.url)) + '" autoplay playsinline controls style="width:100%;border-radius:12px;margin:8px 0"></video>';
+        var v = wrap.querySelector("video");
+        if (v) { try { v.currentTime = t; v.play(); } catch (e) {} }
+      } else {
+        wrap.innerHTML = "";
+        ensureVideo.key = "";
+      }
     }
     function ensureVideo() {
       var wrap = document.getElementById("videowrap");
@@ -423,10 +461,10 @@
         '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT Radio · $MT</p></div>' +
         "<h1>Now playing</h1>" +
         '<div class="cover-wrap"><div class="cover ' + (onAir ? "live" : "") + '"><img src="' + RADIO + '" alt="$MT Radio" /></div></div>' +
+        '<div id="videohole"></div>' +
         '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || TAGLINE) + "</p>" +
         '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
         '<div class="times"><span>' + fmt(t) + "</span><span>" + fmt(dur) + "</span></div></div>" +
-        '<div id="videowrap"></div>' +
         (admin
           ? '<div class="transport"><button class="btn ghost go" id="play" aria-label="Play or pause">' + (onAir ? "⏸" : "▶") + '</button><button class="btn ghost" id="skip" aria-label="Skip">⏭</button></div>'
           : "") +
@@ -449,11 +487,14 @@
         '<p class="made">MT Radio · FutureT3ch × MemeTorrent · $MT</p>';
 
       ensureVideo();
+      var hole = document.getElementById("videohole");
+      var wrap = document.getElementById("videowrap");
+      if (hole && wrap && wrap.parentNode !== hole) hole.appendChild(wrap);
 
       var liveEl = document.getElementById("live");
       if (liveEl) liveEl.onclick = openLive;
       var play = document.getElementById("play");
-      if (play) play.onclick = function () { act("play"); };
+      if (play) play.onclick = function () { act("play"); syncAudio(); ensureVideo(); };
       var skip = document.getElementById("skip");
       if (skip) skip.onclick = function () { act("skip"); };
       var ly = document.getElementById("ly");
