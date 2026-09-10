@@ -17,14 +17,8 @@
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: "IBM Plex Sans", sans-serif; }
-    .app { min-height: 100dvh; padding: 16px 16px 140px; max-width: 28rem; margin: 0 auto; }
-    .dock {
-      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-      background: #0a0a0b; padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
-      box-shadow: 0 -12px 24px rgba(0,0,0,.45);
-    }
-    .dock .btn { height: 56px; font-size: 1.05rem; }
-    audio#audio { width: 100%; margin: 8px 0 0; height: 40px; }
+    .app { min-height: 100dvh; padding: 24px 16px calc(32px + env(safe-area-inset-bottom)); max-width: 28rem; margin: 0 auto; }
+    audio#audio { width: 100%; margin: 8px 0 4px; }
     .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
     .brand img { width: 40px; height: 40px; object-fit: contain; }
     .kicker { font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 500; margin: 0; }
@@ -39,9 +33,9 @@
     .row-btns .btn { flex: 1; }
     .cover-wrap { display: grid; place-items: center; margin: 8px 0 20px; }
     .cover {
-      width: 140px; height: 140px; border-radius: 20px; overflow: hidden;
+      width: min(72vw, 280px); height: min(72vw, 280px); border-radius: 28px; overflow: hidden;
       box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
-      background: #111;
+      background: #111 url("/radio.jpg") center/cover no-repeat;
     }
     .cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cover.live { box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 40px rgba(212,175,55,.25); }
@@ -90,7 +84,10 @@
       <div class="bar"><span id="np-bar"></span></div>
       <div class="times"><span id="np-t0">0:00</span><span id="np-t1">0:00</span></div>
     </div>
-    <div class="transport"></div>
+    <div class="transport">
+      <button type="button" class="btn primary" id="play">Play</button>
+    </div>
+    <audio id="audio" controls playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
     <div class="row-btns">
       <button type="button" class="btn ghost" id="skip">Skip</button>
       <button type="button" class="btn ghost" id="again">Again</button>
@@ -107,10 +104,6 @@
       <button class="btn ghost" id="addurl" type="button">Add stream</button>
     </div>
     <div id="desk"></div>
-  </div>
-  <div class="dock">
-    <button type="button" class="btn primary" id="play">Play</button>
-    <audio id="audio" controls playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
   </div>
   <script>
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
@@ -281,23 +274,26 @@
       box.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:0 0 12px"></iframe>';
     }
     function startSound() {
+      var feed = document.getElementById("feed");
+      if (feed) {
+        try {
+          feed.muted = true;
+          feed.playsInline = true;
+          feed.play().catch(function () {});
+        } catch (e0) {}
+      }
       try {
         audio.muted = false;
         audio.volume = 1;
-        audio.setAttribute("playsinline", "true");
       } catch (e) {}
-      var href = "/hold.mp3";
-      try {
-        if (!audio.src || audio.src.indexOf("hold.mp3") < 0) {
-          audio.src = href;
-        }
-        audio.setAttribute("data-src", href);
-        audio.load();
-      } catch (e2) {}
+      if (!audio.getAttribute("src") && audio.src.indexOf("hold.mp3") < 0) {
+        audio.src = "/hold.mp3";
+      }
+      audio.setAttribute("data-src", "/hold.mp3");
       var p = audio.play();
       if (p && p.catch) {
-        p.catch(function (e) {
-          err = "Tap the white play triangle under Play.";
+        p.catch(function () {
+          err = "Tap the play triangle on the bar under Play.";
           chrome();
         });
       }
@@ -305,13 +301,10 @@
     function syncAudio() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
-      if (!wantPlay) return;
-      if (audio.paused) startSound();
+      if (wantPlay && audio.paused) startSound();
       syncVideo();
     }
     function hitPlay() {
-      var feed = document.getElementById("feed");
-      if (feed) feed.play().catch(function () {});
       wantPlay = !wantPlay;
       if (room.isAdmin) act(wantPlay ? "play" : "pause");
       if (wantPlay) {
@@ -593,6 +586,17 @@
       if (live0) live0.addEventListener("click", openLive);
       var play0 = document.getElementById("play");
       if (play0) play0.onclick = hitPlay;
+      var feed0 = document.getElementById("feed");
+      if (feed0) {
+        feed0.muted = true;
+        feed0.loop = true;
+        feed0.playsInline = true;
+        feed0.play().catch(function () {});
+      }
+      document.addEventListener("touchstart", function kick() {
+        var v = document.getElementById("feed");
+        if (v) v.play().catch(function () {});
+      }, { once: true });
       var skip0 = document.getElementById("skip");
       if (skip0) skip0.onclick = function () { act("skip"); };
       var again0 = document.getElementById("again");
