@@ -91,30 +91,35 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(room);
     }
 
-    const body = raw.length ? JSON.parse(raw.toString("utf8") || "{}") : {};
+    let body: any = {};
+    if (raw.length) {
+      try { body = JSON.parse(raw.toString("utf8") || "{}"); } catch { body = {}; }
+    } else if (req.body && typeof req.body === "object") {
+      body = req.body;
+    }
     const id = String(body.id || "anon");
     const name = String(body.name || "Listener");
     const room = beat(id, name);
     const type = String(body.type || "");
     if (type === "play") {
-      if (room.hostId === id) {
-        if (!room.current) {
-          const next = room.queue.shift() || room.library[0];
-          if (next) startTrack(next);
-        } else if (room.paused) {
-          room.startedAt = Date.now() - (room.pausePos || 0) * 1000;
-          room.paused = false;
-        } else {
-          room.pausePos = room.startedAt ? (Date.now() - room.startedAt) / 1000 : 0;
-          room.paused = true;
-        }
+      room.hostId = id;
+      room.hostName = name;
+      if (!room.current) {
+        const next = room.queue.shift() || room.library[0];
+        if (next) startTrack(next);
+      } else if (room.paused) {
+        room.startedAt = Date.now() - (room.pausePos || 0) * 1000;
+        room.paused = false;
+      } else {
+        room.pausePos = room.startedAt ? (Date.now() - room.startedAt) / 1000 : 0;
+        room.paused = true;
       }
     } else if (type === "skip") {
-      if (room.hostId === id) {
-        const next = room.queue.shift();
-        if (next) startTrack(next);
-        else { room.current = null; room.startedAt = null; room.paused = true; room.pausePos = 0; }
-      }
+      room.hostId = id;
+      room.hostName = name;
+      const next = room.queue.shift();
+      if (next) startTrack(next);
+      else { room.current = null; room.startedAt = null; room.paused = true; room.pausePos = 0; }
     } else if (type === "queue") {
       const track = room.library.find((t: any) => t.id === body.trackId);
       if (track) {

@@ -116,7 +116,7 @@
     }
 
     async function act(type, extra) {
-      const res = await fetch("/api/action", {
+      const res = await fetch("/api/room", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, id: me.id, name: me.name, ...(extra || {}) }),
