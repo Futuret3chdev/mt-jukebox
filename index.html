@@ -158,6 +158,7 @@
       wantPlay = true;
       syncAudio();
       chrome();
+      if (room.isAdmin) act("golive");
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }
@@ -268,7 +269,7 @@
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
       wantPlay = !wantPlay;
-      if (room.isAdmin) act(wantPlay ? "play" : "pause");
+      if (room.isAdmin) act(wantPlay ? "golive" : "pause");
       if (wantPlay) {
         var href = mediaHref();
         if (href) {

@@ -25,6 +25,7 @@ type Room = {
   library: Track[];
   listeners: { id: string; name: string; seen: number }[];
   connected: boolean;
+  wantLive: number;
 };
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
@@ -58,6 +59,7 @@ function bag() {
         library: [],
         listeners: [],
         connected: true,
+        wantLive: 0,
       },
       audio: new Map(),
     };
@@ -917,10 +919,14 @@ export default async function handler(req: any, res: any) {
       const text = await lyricsFor(getRoom().current);
       return res.status(200).json({ ...publicRoom(who.admin), lyrics: text });
     }
-    if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl"].includes(type)) {
-      return res.status(403).json({ error: "Only group admins can DJ. Join live to listen.", live: LIVE, ...publicRoom(false) });
+    if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl", "golive"].includes(type)) {
+      return res.status(403).json({ error: "Only group admins can DJ. Tap Play in the Mini App to listen.", live: LIVE, ...publicRoom(false) });
     }
-    if (type === "play") play(id, name);
+    if (type === "golive") {
+      getRoom().wantLive = Date.now();
+      play(id, name);
+    }
+    else if (type === "play") play(id, name);
     else if (type === "pause") pause(id, name);
     else if (type === "skip") skip(id, name);
     else if (type === "queue") queueTrack(String(body.trackId || ""), id, name);
