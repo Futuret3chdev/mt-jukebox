@@ -25,7 +25,7 @@
     h2 { font-family: Fraunces, serif; font-size: 1.35rem; font-weight: 500; margin: 0 0 4px; }
     p.lead { color: var(--muted); margin: 0 0 20px; }
     button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-    a.btn, .btn { height: 48px; border-radius: 12px; font-weight: 600; width: 100%; display: grid; place-items: center; text-decoration: none; color: inherit; }
+    a.btn, .btn { height: 48px; border-radius: 12px; font-weight: 600; width: 100%; display: grid; place-items: center; text-decoration: none; color: inherit; touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
     .btn.primary, a.btn.primary { background: var(--accent); color: var(--accent-fg); }
     .btn.ghost, a.btn.ghost { background: var(--elev); }
     .row-btns { display: flex; gap: 12px; margin: 20px 0; }
@@ -61,7 +61,7 @@
       background: var(--bg); color: var(--fg); padding: 0 12px; margin: 8px 0 12px; font: inherit;
     }
     input[type="text"] { height: 44px; }
-    textarea { min-height: 72px; padding: 10px 12px; resize: vertical; }
+    textarea { min-height: 72px; padding: 10px 12px; resize: vertical; -webkit-user-select: text; user-select: text; }
     label { font-size: 0.8rem; color: var(--muted); }
     input[type="file"] { width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit; }
     .made { margin-top: 20px; color: var(--dim); font-size: 0.75rem; letter-spacing: 0.04em; text-align: center; }
@@ -105,6 +105,9 @@
     let err = "";
     let lyrics = "";
     let showLyrics = false;
+    let srcDraft = "";
+    let busy = "";
+    let holdPaint = 0;
     const audio = document.getElementById("audio");
 
     function fmt(s) {
@@ -145,6 +148,12 @@
       return h;
     }
 
+    function editing() {
+      var a = document.activeElement;
+      if (!a) return false;
+      return a.id === "src" || a.id === "file" || a.tagName === "TEXTAREA" || a.tagName === "INPUT";
+    }
+
     async function pull() {
       try {
         const q = new URLSearchParams({ id: me.id, name: me.name });
@@ -153,9 +162,13 @@
         room = await res.json();
         if (err && /room|linked|update the room/i.test(err)) err = "";
         syncAudio();
+        if (busy || editing() || Date.now() < holdPaint) {
+          tickBar();
+          return;
+        }
         paint();
       } catch (e) {
-        err = "Could not reach MT Radio.";
+        if (!busy) err = "Could not reach MT Radio.";
       }
     }
 
@@ -168,13 +181,13 @@
       const data = await res.json().catch(function () { return {}; });
       if (res.ok) {
         room = data;
-        err = "";
+        if (!busy) err = "";
         syncAudio();
-        paint();
+        if (!busy && !editing()) paint();
       } else {
         err = data.error || "Only group admins can DJ.";
         if (data.live) room.live = data.live;
-        paint();
+        if (!editing()) paint();
       }
     }
 
@@ -273,13 +286,34 @@
       }
     }
 
-    async function addUrl() {
+    async function addUrl(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (addUrl.lock && Date.now() < addUrl.lock) return;
+      addUrl.lock = Date.now() + 1500;
+      holdPaint = Date.now() + 4000;
       var el = document.getElementById("src");
-      var url = el ? el.value.trim() : "";
-      if (!url) return;
-      err = "Adding stream…";
+      var url = ((el && el.value) || srcDraft || "").trim();
+      srcDraft = url;
+      if (!url) {
+        err = "Paste a YouTube, radio, or stream link first.";
+        paint();
+        return;
+      }
+      busy = "Adding stream…";
+      err = "Adding stream… keep this open.";
       paint();
-      await act("addUrl", { url: url, title: "" });
+      try {
+        await act("addUrl", { url: url, title: "" });
+        srcDraft = "";
+        err = "Stream added.";
+      } catch (e2) {
+        err = "Could not add that stream.";
+      }
+      busy = "";
+      paint();
     }
 
     function rows(list, mode) {
@@ -326,6 +360,10 @@
       const title = cur ? cur.title : STATION;
       const sub = cur ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : TAGLINE;
       const admin = !!room.isAdmin;
+      var srcEl = document.getElementById("src");
+      if (srcEl) srcDraft = srcEl.value;
+      var hadSrc = document.activeElement && document.activeElement.id === "src";
+      var sel = srcEl ? srcEl.selectionStart : srcDraft.length;
       document.getElementById("app").innerHTML =
         '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>' +
         "<h1>MT Radio</h1>" +
@@ -346,11 +384,12 @@
             '<p class="hint">Files, not Photos. Any size.</p>' +
             "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
             '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
-            '<button class="btn ghost" id="addurl">Add stream</button></div>' +
+            '<button class="btn ghost" id="addurl" type="button">Add stream</button></div>' +
             '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ")</h3>" + rows(room.queue || [], "queue") + "</div>" +
             '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + "</div>"
           : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
-        (err ? '<p class="err">' + escapeHtml(err) + "</p>" : '<p class="hint">Join live opens the SoftwareTesters voice chat. Close this page — MT Radio stays on.</p>') +
+        (err && !busy ? '<p class="err">' + escapeHtml(err) + "</p>" : "") +
+        (busy ? '<p class="err" style="color:#fde68a">' + escapeHtml(busy) + "</p>" : (!err ? '<p class="hint">Join live opens the SoftwareTesters voice chat. Close this page — MT Radio stays on.</p>' : "")) +
         '<p class="made">MT Radio · FutureT3ch × MemeTorrent</p>';
 
       var liveEl = document.getElementById("live");
@@ -379,8 +418,21 @@
         paint();
       };
       bindFile(document.getElementById("file"));
+      var src2 = document.getElementById("src");
+      if (src2) {
+        src2.value = srcDraft;
+        src2.oninput = function () { srcDraft = src2.value; holdPaint = Date.now() + 4000; };
+        src2.onfocus = function () { holdPaint = Date.now() + 8000; };
+        if (hadSrc) {
+          src2.focus();
+          try { src2.setSelectionRange(sel, sel); } catch (e) {}
+        }
+      }
       var add = document.getElementById("addurl");
-      if (add) add.onclick = addUrl;
+      if (add) {
+        add.onclick = addUrl;
+        add.onpointerdown = addUrl;
+      }
       document.querySelectorAll("[data-q]").forEach(function (btn) {
         btn.onclick = function () { act("queue", { trackId: btn.getAttribute("data-q") }); };
       });
