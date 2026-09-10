@@ -162,7 +162,17 @@
       });
     }
 
-    audio.addEventListener("timeupdate", () => { if (joined && current) render(); });
+    audio.addEventListener("timeupdate", () => {
+      if (!joined || !current) return;
+      const bar = document.querySelector(".bar > span");
+      const times = document.querySelectorAll(".times span");
+      if (!bar) return;
+      const dur = audio.duration || current.duration || 16;
+      const t = audio.currentTime || 0;
+      bar.style.width = Math.min(100, (t / dur) * 100) + "%";
+      if (times[0]) times[0].textContent = fmt(t);
+      if (times[1]) times[1].textContent = fmt(dur);
+    });
     audio.addEventListener("ended", () => {
       const next = queue.shift();
       if (next) start(next);
