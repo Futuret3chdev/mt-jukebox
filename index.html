@@ -17,7 +17,14 @@
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: "IBM Plex Sans", sans-serif; }
-    .app { min-height: 100dvh; padding: 24px 16px calc(32px + env(safe-area-inset-bottom)); max-width: 28rem; margin: 0 auto; }
+    .app { min-height: 100dvh; padding: 16px 16px 140px; max-width: 28rem; margin: 0 auto; }
+    .dock {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      background: #0a0a0b; padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+      box-shadow: 0 -12px 24px rgba(0,0,0,.45);
+    }
+    .dock .btn { height: 56px; font-size: 1.05rem; }
+    audio#audio { width: 100%; margin: 8px 0 0; height: 40px; }
     .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
     .brand img { width: 40px; height: 40px; object-fit: contain; }
     .kicker { font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 500; margin: 0; }
@@ -32,7 +39,7 @@
     .row-btns .btn { flex: 1; }
     .cover-wrap { display: grid; place-items: center; margin: 8px 0 20px; }
     .cover {
-      width: min(72vw, 280px); height: min(72vw, 280px); border-radius: 28px; overflow: hidden;
+      width: 140px; height: 140px; border-radius: 20px; overflow: hidden;
       box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
       background: #111;
     }
@@ -83,9 +90,7 @@
       <div class="bar"><span id="np-bar"></span></div>
       <div class="times"><span id="np-t0">0:00</span><span id="np-t1">0:00</span></div>
     </div>
-    <div class="transport">
-      <button type="button" class="btn primary" id="play">Play</button>
-    </div>
+    <div class="transport"></div>
     <div class="row-btns">
       <button type="button" class="btn ghost" id="skip">Skip</button>
       <button type="button" class="btn ghost" id="again">Again</button>
@@ -103,7 +108,10 @@
     </div>
     <div id="desk"></div>
   </div>
-  <audio id="audio" playsinline></audio>
+  <div class="dock">
+    <button type="button" class="btn primary" id="play">Play</button>
+    <audio id="audio" controls playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
+  </div>
   <script>
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
@@ -253,17 +261,10 @@
       return m ? m[1] : "";
     }
     function mediaHref() {
-      var cur = room.current;
-      if (!cur || cur.kind === "station") return "/hold.mp3";
-      if (cur.playUrl && String(cur.playUrl).indexOf("tmpfiles.org") < 0) return cur.playUrl;
-      if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
-      var u = abs(cur.url || "");
-      if (!u || u.indexOf("tmpfiles.org") >= 0 || u.indexOf("catbox") >= 0) return "/hold.mp3";
-      return u;
+      return "/hold.mp3";
     }
     function isOnAir() {
-      var cur = room.current;
-      return !!(wantPlay && cur && cur.kind !== "station");
+      return !!wantPlay;
     }
     function syncVideo() {
       var box = document.getElementById("ytbox");
@@ -279,52 +280,43 @@
       syncVideo.key = id;
       box.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:0 0 12px"></iframe>';
     }
+    function startSound() {
+      try {
+        audio.muted = false;
+        audio.volume = 1;
+        audio.setAttribute("playsinline", "true");
+      } catch (e) {}
+      var href = "/hold.mp3";
+      try {
+        if (!audio.src || audio.src.indexOf("hold.mp3") < 0) {
+          audio.src = href;
+        }
+        audio.setAttribute("data-src", href);
+        audio.load();
+      } catch (e2) {}
+      var p = audio.play();
+      if (p && p.catch) {
+        p.catch(function (e) {
+          err = "Tap the white play triangle under Play.";
+          chrome();
+        });
+      }
+    }
     function syncAudio() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
-      if (!wantPlay) {
-        try { audio.pause(); } catch (e) {}
-        return;
-      }
-      var href = mediaHref();
-      if (!href) {
-        syncVideo();
-        return;
-      }
-      try {
-        if (audio.getAttribute("data-src") !== href) {
-          audio.src = href;
-          audio.setAttribute("data-src", href);
-        }
-      } catch (e) {}
-      audio.play().catch(function () {});
+      if (!wantPlay) return;
+      if (audio.paused) startSound();
       syncVideo();
     }
-    audio.addEventListener("error", function () {
-      if (audio.getAttribute("data-src") === "/hold.mp3") return;
-      try {
-        audio.src = "/hold.mp3";
-        audio.setAttribute("data-src", "/hold.mp3");
-        if (wantPlay) audio.play().catch(function () {});
-      } catch (e) {}
-    });
     function hitPlay() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
       wantPlay = !wantPlay;
       if (room.isAdmin) act(wantPlay ? "play" : "pause");
       if (wantPlay) {
-        try {
-          audio.src = mediaHref() || "/hold.mp3";
-          audio.setAttribute("data-src", audio.src);
-        } catch (e) {}
-        audio.play().catch(function () {
-          try {
-            audio.src = "/hold.mp3";
-            audio.setAttribute("data-src", "/hold.mp3");
-            audio.play().catch(function () {});
-          } catch (e2) {}
-        });
+        err = "";
+        startSound();
         syncVideo();
       } else {
         try { audio.pause(); } catch (e) {}
