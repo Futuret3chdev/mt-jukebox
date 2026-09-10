@@ -78,6 +78,7 @@
   <script>
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
+    const VOICE = "https://t.me/c/2671373361?voicechat";
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
     const STATION = "MT Radio";
     const TAGLINE = "MT ecosystem · made by FutureT3ch and MemeTorrent";
@@ -123,21 +124,19 @@
       return Math.max(0, (Date.now() - room.startedAt) / 1000);
     }
     function liveHref() {
-      var href = (room && room.live) || LIVE;
-      if (!href || href.indexOf("/c/") >= 0 || href.indexOf("telegram.org") >= 0) return LIVE;
-      return href;
+      return LIVE;
     }
     function openLive(e) {
-      var href = liveHref();
+      if (e) e.preventDefault();
       try {
         if (tg && tg.openTelegramLink) {
-          if (e) e.preventDefault();
-          tg.openTelegramLink(href);
-          setTimeout(function () { try { if (tg.close) tg.close(); } catch (e2) {} }, 250);
+          tg.openTelegramLink(VOICE);
+          setTimeout(function () { try { if (tg.close) tg.close(); } catch (e2) {} }, 400);
           return false;
         }
       } catch (err) {}
-      return true;
+      try { if (tg && tg.close) tg.close(); } catch (e3) {}
+      return false;
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }
@@ -367,7 +366,7 @@
       document.getElementById("app").innerHTML =
         '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>' +
         "<h1>MT Radio</h1>" +
-        '<p class="lead">' + TAGLINE + "</p>" +
+        '<p class="lead">Tap Join live, then tap the live bar at the top of SoftwareTesters so you hear MT Radio.</p>' +
         '<div class="disc-wrap"><div class="disc ' + (onAir ? "spin" : "") + '"><img src="' + LOGO + '" alt="" /></div></div>' +
         '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || "On air") + "</p>" +
         '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
