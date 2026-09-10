@@ -70,10 +70,27 @@
 </head>
 <body>
   <div class="app" id="app">
-    <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>
-    <h1>MT Radio</h1>
-    <p class="lead">Made by FutureT3ch and MemeTorrent. Tap Join live — that opens the group voice chat.</p>
-    <a class="btn primary" href="https://t.me/joinchat/WgogJ0YgKAQzN2Q9">Join live stream</a>
+    <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MT Radio · $MT</p></div>
+    <h1>Now playing</h1>
+    <div class="cover-wrap"><div class="cover"><img src="/radio.jpg" alt="$MT Radio" /></div></div>
+    <div class="now"><h2>MT Radio</h2><p>MT ecosystem · made by FutureT3ch and MemeTorrent</p>
+      <div class="bar"><span></span></div>
+      <div class="times"><span>0:00</span><span>0:00</span></div>
+    </div>
+    <div class="transport">
+      <button class="btn ghost go" id="play">▶</button>
+      <button class="btn ghost" id="skip">⏭</button>
+    </div>
+    <a class="btn primary" id="live" href="https://t.me/joinchat/WgogJ0YgKAQzN2Q9">Join live stream</a>
+    <div class="row-btns"><button class="btn ghost" id="ly">Lyrics</button></div>
+    <div class="panel">
+      <h3>Add to the player</h3>
+      <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />
+      <p class="hint">Files, not Photos. Audio or video. Any size.</p>
+      <label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>
+      <textarea id="src" placeholder="https://youtube.com/watch?v=…"></textarea>
+      <button class="btn ghost" id="addurl" type="button">Add stream</button>
+    </div>
   </div>
   <audio id="audio" playsinline></audio>
   <script>
@@ -424,8 +441,8 @@
             "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
             '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
             '<button class="btn ghost" id="addurl" type="button">Add stream</button></div>' +
-            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ")</h3>' + rows(room.queue || [], "queue") + "</div>" +
-            '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + "</div>"
+            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ')</h3>' + rows(room.queue || [], "queue") + '</div>' +
+            '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + '</div>'
           : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
         (err && !busy ? '<p class="err">' + escapeHtml(err) + "</p>" : "") +
         (busy ? '<p class="err" style="color:#fde68a">' + escapeHtml(busy) + "</p>" : (!err ? '<p class="hint">Close this page — MT Radio stays on in the live chat.</p>' : "")) +
@@ -510,8 +527,21 @@
     }
 
     audio.addEventListener("ended", function () { if (room.isAdmin) act("skip"); });
-    bindFile(document.getElementById("file-boot"));
-    try { bootRoom(); } catch (e) { err = "Reload, then tap Join live."; }
+    try {
+      bindFile(document.getElementById("file"));
+      var live0 = document.getElementById("live");
+      if (live0) live0.onclick = openLive;
+      var play0 = document.getElementById("play");
+      if (play0) play0.onclick = function () { act("play"); };
+      var skip0 = document.getElementById("skip");
+      if (skip0) skip0.onclick = function () { act("skip"); };
+      var add0 = document.getElementById("addurl");
+      if (add0) add0.onclick = addUrl;
+      bootRoom();
+    } catch (e) {
+      err = String(e && e.message ? e.message : e);
+      try { document.getElementById("app").insertAdjacentHTML("beforeend", '<p class="err">' + err + "</p>"); } catch (e2) {}
+    }
   </script>
 </body>
 </html>
