@@ -149,7 +149,7 @@
       err = "";
       paint();
       const q = new URLSearchParams({ title: file.name.replace(/\.[^.]+$/, ""), name: me.name, id: me.id });
-      const res = await fetch("/api/upload?" + q, { method: "POST", body: file });
+      const res = await fetch("/api/room?" + q, { method: "POST", body: file });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         err = data.error || "Could not add that file";
