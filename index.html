@@ -88,14 +88,23 @@
     </div>
     <div class="row-btns">
       <button type="button" class="btn ghost" id="skip">Skip</button>
+      <a class="btn primary" id="live" href="https://t.me/+WgogJ0YgKAQzN2Q9">Live</a>
     </div>
     <p class="err" id="status"></p>
+    <div class="panel" id="addpanel">
+      <h3>Add to the player</h3>
+      <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />
+      <p class="hint">Files, not Photos. One tap. Any size.</p>
+      <label>YouTube, radio, Twitch, Kick, Icecast, HLS</label>
+      <textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream"></textarea>
+      <button class="btn ghost" id="addurl" type="button">Add stream</button>
+    </div>
     <div id="desk"></div>
   </div>
   <audio id="audio" playsinline></audio>
   <script>
-    const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
-    const GROUP = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
+    const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
+    const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
     const RADIO = "/radio.jpg";
     const STATION = "MT Radio";
@@ -145,16 +154,10 @@
     function liveHref() {
       return LIVE;
     }
-    function openLive(e) {
-      if (e) e.preventDefault();
+    function openLive() {
+      wantPlay = true;
       syncAudio();
-      try {
-        if (tg && tg.openTelegramLink) {
-          tg.openTelegramLink(LIVE);
-          return false;
-        }
-      } catch (err) {}
-      return false;
+      chrome();
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }
@@ -329,26 +332,38 @@
       bootRoom();
       if (!file) return;
       if (!room.isAdmin) {
+        err = "Checking access…";
+        chrome();
+        try { await pull(); } catch (e0) {}
+      }
+      if (!room.isAdmin) {
         err = "Only group admins can add tracks. Tap Play to listen.";
-        paint();
+        chrome();
         return;
       }
       if (file.size < 200) {
         err = "That pick was empty. Use Files, not Photos.";
-        paint();
+        chrome();
         return;
       }
+      busy = "Adding " + file.name + "…";
       err = "Adding " + file.name + "…";
-      paint();
+      holdPaint = Date.now() + 20000;
+      chrome();
       try {
         if (file.size > 3500000) {
           const url = await hostFile(file);
           if (!url) {
             err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
-            paint();
+            busy = "";
+            chrome();
             return;
           }
           await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, "") });
+          wantPlay = true;
+          busy = "";
+          err = "Added " + file.name;
+          chrome();
           return;
         }
         const q = new URLSearchParams({
@@ -365,17 +380,21 @@
         const data = await res.json().catch(function () { return {}; });
         if (!res.ok) {
           err = data.error || "Could not add " + file.name;
-          paint();
+          busy = "";
+          chrome();
           return;
         }
         room = data;
-        err = "";
+        err = "Added " + file.name;
         wantPlay = true;
+        busy = "";
         syncAudio();
+        chrome();
         paint();
       } catch (e) {
         err = "Could not add " + file.name + ". Send it to @Mtradiobot.";
-        paint();
+        busy = "";
+        chrome();
       }
     }
 
@@ -448,31 +467,15 @@
     }
 
     function paint() {
-      var srcEl = document.getElementById("src");
-      if (srcEl) srcDraft = srcEl.value;
-      var hadSrc = document.activeElement && document.activeElement.id === "src";
-      var sel = srcEl ? srcEl.selectionStart : srcDraft.length;
       chrome();
-      var admin = !!room.isAdmin;
-      document.getElementById("desk").innerHTML =
+      var desk = document.getElementById("desk");
+      if (!desk) return;
+      desk.innerHTML =
         (showLyrics ? '<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">' + escapeHtml(lyrics || "Looking up…") + "</p></div>" : "") +
         '<div class="row-btns"><button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button></div>" +
-        (admin
-          ? '<div class="panel"><h3>Add to the player</h3>' +
-            '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />' +
-            '<p class="hint">Files, not Photos. Audio or video. Any size. Adding a track plays it here.</p>' +
-            "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
-            '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream"></textarea>' +
-            '<button class="btn ghost" id="addurl" type="button">Add stream</button></div>' +
-            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ')</h3>' + rows(room.queue || [], "queue") + '</div>' +
-            '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + '</div>'
-          : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
+        '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ')</h3>' + rows(room.queue || [], room.isAdmin ? "queue" : "listen") + "</div>" +
+        (room.isAdmin ? '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + "</div>" : "") +
         '<p class="made">MT Radio · FutureT3ch × MemeTorrent · $MT</p>';
-
-      var play = document.getElementById("play");
-      if (play) play.onclick = hitPlay;
-      var skip = document.getElementById("skip");
-      if (skip) skip.onclick = function () { act("skip"); };
       var ly = document.getElementById("ly");
       if (ly) ly.onclick = async function () {
         if (showLyrics) { showLyrics = false; paint(); return; }
@@ -487,24 +490,11 @@
           });
           const data = await res.json();
           lyrics = data.lyrics || "No lyrics found.";
-        } catch (e) {
+        } catch (e2) {
           lyrics = "Could not load lyrics.";
         }
         paint();
       };
-      bindFile(document.getElementById("file"));
-      var src2 = document.getElementById("src");
-      if (src2) {
-        src2.value = srcDraft;
-        src2.oninput = function () { srcDraft = src2.value; holdPaint = Date.now() + 4000; };
-        src2.onfocus = function () { holdPaint = Date.now() + 8000; };
-        if (hadSrc) {
-          src2.focus();
-          try { src2.setSelectionRange(sel, sel); } catch (e) {}
-        }
-      }
-      var add = document.getElementById("addurl");
-      if (add) add.onclick = addUrl;
       document.querySelectorAll("[data-q]").forEach(function (btn) {
         btn.onclick = function () { act("queue", { trackId: btn.getAttribute("data-q") }); };
       });
@@ -546,13 +536,20 @@
     try {
       bindFile(document.getElementById("file"));
       var live0 = document.getElementById("live");
-      if (live0) live0.onclick = openLive;
+      if (live0) live0.addEventListener("click", openLive);
       var play0 = document.getElementById("play");
       if (play0) play0.onclick = hitPlay;
       var skip0 = document.getElementById("skip");
       if (skip0) skip0.onclick = function () { act("skip"); };
       var add0 = document.getElementById("addurl");
       if (add0) add0.onclick = addUrl;
+      var src0 = document.getElementById("src");
+      if (src0) {
+        src0.oninput = function () { srcDraft = src0.value; holdPaint = Date.now() + 8000; };
+        src0.onfocus = function () { holdPaint = Date.now() + 12000; };
+      }
+      var file0 = document.getElementById("file");
+      if (file0) file0.addEventListener("click", function () { holdPaint = Date.now() + 60000; });
       bootRoom();
     } catch (e) {
       err = String(e && e.message ? e.message : e);

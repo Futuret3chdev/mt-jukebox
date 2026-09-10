@@ -30,8 +30,8 @@ type Room = {
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
 const APP = "https://mt-house-jukebox.vercel.app/";
 const ART = "https://mt-house-jukebox.vercel.app/radio.jpg";
-const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
-const INVITE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
+const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
+const INVITE = "https://t.me/+WgogJ0YgKAQzN2Q9";
 const GROUP = -1002671373361;
 const BOT_DM = "https://t.me/Mtradiobot?start=menu";
 const DJ_KEY = process.env.DJ_KEY || "mt-radio-dj-9f3";
