@@ -140,11 +140,19 @@ def to_wav(src, dest, start=0):
 
 
 def audio_stream(path):
-    return MediaStream(
-        media_path=path,
-        audio_path=path,
-        video_flags=MediaStream.Flags.IGNORE,
-        ffmpeg_parameters="-stream_loop -1",
+    ff = shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
+    cmd = (
+        ff
+        + " -hide_banner -loglevel error -re -stream_loop -1 -i "
+        + json.dumps(path)
+        + " -f s16le -ac 2 -ar 48000 pipe:1"
+    )
+    return Stream(
+        microphone=AudioStream(
+            MediaSource.SHELL,
+            cmd,
+            AudioParameters(bitrate=48000, channels=2),
+        ),
     )
 
 
