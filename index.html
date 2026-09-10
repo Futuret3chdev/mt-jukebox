@@ -230,9 +230,9 @@
 
     function escapeHtml(s) {
       return String(s || "").replace(/[&<>"']/g, (c) => {
-        if (c === "&") return "&";
-        if (c === "<") return "<";
-        if (c === ">") return ">";
+        if (c === "&") return "&amp;";
+        if (c === "<") return "&lt;";
+        if (c === ">") return "&gt;";
         if (c === '"') return "&#34;";
         return "&#39;";
       });
