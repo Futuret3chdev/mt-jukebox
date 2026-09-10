@@ -1,10 +1,14 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleApi } from "../server/http";
+import { heartbeat } from "../jb-store";
 
-export const config = { api: { bodyParser: false } };
-
-export default function handler(req: IncomingMessage, res: ServerResponse) {
-  const q = req.url?.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-  req.url = "/api/room" + q;
-  return handleApi(req, res);
+export default function handler(req: { query?: { id?: string; name?: string }; method?: string }, res: {
+  setHeader: (k: string, v: string) => void;
+  status: (n: number) => { json: (b: unknown) => void; end: (b?: string) => void };
+  json: (b: unknown) => void;
+}) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method === "OPTIONS") return res.status(200).end();
+  const id = String(req.query?.id || "anon");
+  const name = String(req.query?.name || "Listener");
+  return res.status(200).json(heartbeat(id, name));
 }
