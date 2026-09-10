@@ -26,6 +26,7 @@ type Room = {
   listeners: { id: string; name: string; seen: number }[];
   connected: boolean;
   wantLive: number;
+  loop: boolean;
 };
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
@@ -60,6 +61,7 @@ function bag() {
         listeners: [],
         connected: true,
         wantLive: 0,
+        loop: true,
       },
       audio: new Map(),
     };
@@ -99,6 +101,7 @@ function publicRoom(isAdmin: boolean) {
     ...room,
     current,
     paused: room.current ? room.paused : true,
+    loop: room.loop !== false,
     isAdmin,
     live: LIVE,
     invite: INVITE,
@@ -915,11 +918,16 @@ export default async function handler(req: any, res: any) {
       }
       return res.status(200).json(publicRoom(true));
     }
+    if (type === "replay" && String(body.key || "") === DJ_KEY) {
+      const room = getRoom();
+      if (room.current) startTrack(room.current);
+      return res.status(200).json(publicRoom(true));
+    }
     if (type === "lyrics") {
       const text = await lyricsFor(getRoom().current);
       return res.status(200).json({ ...publicRoom(who.admin), lyrics: text });
     }
-    if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl", "golive"].includes(type)) {
+    if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl", "golive", "loop", "replay"].includes(type)) {
       return res.status(403).json({ error: "Only group admins can DJ. Tap Play in the Mini App to listen.", live: LIVE, ...publicRoom(false) });
     }
     if (type === "golive") {
@@ -929,6 +937,15 @@ export default async function handler(req: any, res: any) {
     else if (type === "play") play(id, name);
     else if (type === "pause") pause(id, name);
     else if (type === "skip") skip(id, name);
+    else if (type === "replay") {
+      const room = getRoom();
+      if (room.current && room.current.kind !== "station") startTrack(room.current);
+      else play(id, name);
+    }
+    else if (type === "loop") {
+      const room = getRoom();
+      room.loop = !(room.loop !== false);
+    }
     else if (type === "queue") queueTrack(String(body.trackId || ""), id, name);
     else if (type === "remove") removeFromQueue(String(body.trackId || ""));
     else if (type === "delete") deleteTrack(String(body.trackId || ""));

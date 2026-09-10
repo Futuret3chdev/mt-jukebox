@@ -88,13 +88,15 @@
     </div>
     <div class="row-btns">
       <button type="button" class="btn ghost" id="skip">Skip</button>
+      <button type="button" class="btn ghost" id="again">Again</button>
+      <button type="button" class="btn ghost" id="loop">Loop on</button>
       <a class="btn primary" id="live" href="https://t.me/+WgogJ0YgKAQzN2Q9">Live</a>
     </div>
     <p class="err" id="status"></p>
     <div class="panel" id="addpanel">
       <h3>Add to the player</h3>
       <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />
-      <p class="hint">Files, not Photos. One tap. Any size.</p>
+      <p class="hint">Files, not Photos. You listen with Play here. Other people tap Live and join the top bar — not your phone as the DJ.</p>
       <label>YouTube, radio, Twitch, Kick, Icecast, HLS</label>
       <textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream"></textarea>
       <button class="btn ghost" id="addurl" type="button">Add stream</button>
@@ -297,6 +299,8 @@
       if (titleEl) titleEl.textContent = cur && cur.kind !== "station" ? cur.title : STATION;
       if (subEl) subEl.textContent = onAir ? ((cur && cur.kind !== "station" ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : "MT Radio live")) : "Tap Play to hear it";
       if (playEl) playEl.textContent = onAir ? "Pause" : "Play";
+      var loopEl = document.getElementById("loop");
+      if (loopEl) loopEl.textContent = room.loop === false ? "Loop off" : "Loop on";
       if (st) st.textContent = busy || err || "";
       tickBar();
     }
@@ -533,7 +537,14 @@
       };
     }
 
-    audio.addEventListener("ended", function () { if (room.isAdmin) act("skip"); });
+    audio.addEventListener("ended", function () {
+      if (room.loop !== false) {
+        try { audio.currentTime = 0; audio.play(); } catch (e) {}
+        if (room.isAdmin) act("replay");
+        return;
+      }
+      if (room.isAdmin) act("skip");
+    });
     try {
       bindFile(document.getElementById("file"));
       var live0 = document.getElementById("live");
@@ -542,6 +553,10 @@
       if (play0) play0.onclick = hitPlay;
       var skip0 = document.getElementById("skip");
       if (skip0) skip0.onclick = function () { act("skip"); };
+      var again0 = document.getElementById("again");
+      if (again0) again0.onclick = function () { wantPlay = true; act("replay"); syncAudio(); chrome(); };
+      var loop0 = document.getElementById("loop");
+      if (loop0) loop0.onclick = function () { act("loop"); };
       var add0 = document.getElementById("addurl");
       if (add0) add0.onclick = addUrl;
       var src0 = document.getElementById("src");
