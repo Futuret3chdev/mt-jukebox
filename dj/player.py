@@ -139,14 +139,24 @@ def to_wav(src, dest, start=0):
     return dest
 
 
-def audio_stream(path):
+def radio_av(audio_path):
+    vid = RADIO_MP4 if os.path.exists(RADIO_MP4) else RADIO_JPG
     return Stream(
         microphone=AudioStream(
             MediaSource.FILE,
-            path,
+            audio_path,
             AudioParameters(bitrate=48000, channels=2),
         ),
+        camera=VideoStream(
+            MediaSource.FILE,
+            vid,
+            VideoParameters(width=720, height=720, frame_rate=24),
+        ),
     )
+
+
+def audio_stream(path):
+    return radio_av(path)
 
 
 def av_stream(path):
@@ -220,6 +230,25 @@ def probe_dur(path):
 
 def ytdlp_to(url, video):
     vid = ytid(url)
+    if video:
+        cached = os.path.join(TRACK_DIR, "yt-" + (vid or "x") + ".mp4")
+        if os.path.exists(cached) and os.path.getsize(cached) > 100000:
+            print("yt_video_cache", vid, flush=True)
+            return cached
+        cmd = [
+            "yt-dlp",
+            "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
+            "--merge-output-format", "mp4",
+            "--extractor-args", "youtube:player_client=android,ios,tv,web",
+            "--no-playlist",
+            "--no-warnings",
+            "-o", cached,
+            url,
+        ]
+        subprocess.check_call(cmd, timeout=240)
+        if os.path.exists(cached) and os.path.getsize(cached) > 100000:
+            return cached
+        return ""
     cached = os.path.join(TRACK_DIR, "yt-" + (vid or "x") + ".wav")
     if os.path.exists(cached) and os.path.getsize(cached) > 20000:
         print("yt_cache", vid, flush=True)
@@ -300,13 +329,13 @@ def stream_from_url(url, kind, start=0):
     video = kind in VIDEO_KINDS
     if kind in YDL_KINDS and url:
         try:
+            vpath = ytdlp_to(url, True)
+            if vpath and vpath.endswith(".mp4"):
+                print("yt_video", vpath, flush=True)
+                return av_stream(vpath)
             path = ytdlp_to(url, False)
             if path:
-                if start > 2:
-                    sliced = os.path.join(WORKDIR, "seek.wav")
-                    to_wav(path, sliced, start)
-                    path = sliced
-                return audio_stream(path)
+                return radio_av(path)
         except Exception as e:
             print("ytdlp_err", e, flush=True)
     if url:
@@ -406,15 +435,19 @@ async def main():
     bot_on = False
     empty_n = 0
     pause_votes = 0
+    switching = False
     print("DJ_READY", flush=True)
 
     @user_calls.on_update()
     async def _on_update(client, update):
-        nonlocal last
+        nonlocal last, joined, switching
         name = type(update).__name__
         print("call_update", name, flush=True)
-        if "Ended" in name:
+        if switching:
+            return
+        if "Ended" in name or "Discarded" in name:
             last = ""
+            joined = False
             print("stream_ended replay", flush=True)
 
     async def ensure_call():
@@ -433,54 +466,35 @@ async def main():
             return False
 
     async def put_stream(stream, can_start):
-        nonlocal joined, bot_on
+        nonlocal joined, bot_on, switching
+        switching = True
+        if joined:
+            try:
+                await user_calls.leave_call(CHAT_ID, close=False)
+                print("left_to_switch", flush=True)
+            except Exception as e:
+                print("leave_switch_err", type(e).__name__, e, flush=True)
+            joined = False
+            bot_on = False
+            await asyncio.sleep(1)
         if can_start:
             await ensure_call()
             await asyncio.sleep(1)
         try:
-            await bot_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=False))
-            bot_on = True
+            await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=True))
             joined = True
-            print("bot_playing", flush=True)
-            return True
-        except Exception as e:
-            print("bot_play_err", type(e).__name__, e, flush=True)
-        if can_start:
+            bot_on = False
             try:
-                await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=True))
-                joined = True
-                bot_on = False
-                print("user_started_call", flush=True)
-            except Exception as e:
-                print("user_start_err", type(e).__name__, e, flush=True)
-                joined = False
-                return False
-            await asyncio.sleep(6)
-            for attempt in range(6):
-                try:
-                    await bot_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=False))
-                    bot_on = True
-                    print("bot_joined", attempt, flush=True)
-                    try:
-                        await user_calls.leave_call(CHAT_ID, close=False)
-                        print("user_left_for_listeners", flush=True)
-                    except Exception as le:
-                        print("leave_err", le, flush=True)
-                    return True
-                except Exception as e:
-                    print("bot_join_try", attempt, type(e).__name__, e, flush=True)
-                    await asyncio.sleep(3)
-            print("bot_join_fail keep user as DJ", flush=True)
-            return True
-        try:
-            await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=False))
-            joined = True
-            print("user_playing", flush=True)
+                await user_calls.unmute(CHAT_ID)
+            except Exception:
+                pass
+            print("mic_live", flush=True)
+            switching = False
             return True
         except Exception as e:
             print("user_play_err", type(e).__name__, e, flush=True)
             joined = False
-            bot_on = False
+            switching = False
             return False
 
     while True:
@@ -553,9 +567,10 @@ async def main():
                     print("hold", flush=True)
                 ok = await put_stream(stream, start_live or not joined)
                 if not ok:
-                    last = tid
+                    last = ""
+                    joined = False
                     last_play = now
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(4)
                     continue
                 last = tid
                 last_play = now

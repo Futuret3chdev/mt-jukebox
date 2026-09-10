@@ -326,16 +326,22 @@
       if (!id) return;
       if (syncVideo.key === id && box.firstChild) return;
       syncVideo.key = id;
-      box.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:0 0 12px"></iframe>';
+      box.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&mute=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:0 0 12px"></iframe>';
     }
     function startSound() {
+      var cur = room.current;
+      if (cur && ["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) {
+        try { audio.pause(); } catch (e0) {}
+        syncVideo();
+        return;
+      }
       var feed = document.getElementById("feed");
       if (feed) {
         try {
           feed.muted = true;
           feed.playsInline = true;
           feed.play().catch(function () {});
-        } catch (e0) {}
+        } catch (e1) {}
       }
       var href = mediaHref() || "/hold.mp3";
       try {
