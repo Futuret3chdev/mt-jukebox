@@ -65,7 +65,11 @@
   </style>
 </head>
 <body>
-  <div class="app" id="app"></div>
+  <div class="app" id="app">
+    <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
+    <h1>Jukebox</h1>
+    <p class="lead">One room. Everyone who opens this hears the same track.</p>
+  </div>
   <audio id="audio" playsinline></audio>
   <script>
     const FALLBACK = [
@@ -191,7 +195,13 @@
     }
 
     function escapeHtml(s) {
-      return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&", "<": "<", ">": ">", '"': """, "'": "&#39;" }[c]));
+      return String(s || "").replace(/[&<>"']/g, (c) => {
+        if (c === "&") return "&";
+        if (c === "<") return "<";
+        if (c === ">") return ">";
+        if (c === '"') return "&#34;";
+        return "&#39;";
+      });
     }
 
     function tickBar() {
