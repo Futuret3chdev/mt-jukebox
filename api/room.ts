@@ -96,7 +96,7 @@ function publicRoom(isAdmin: boolean) {
   return {
     ...room,
     current,
-    paused: room.current ? room.paused : false,
+    paused: room.current ? room.paused : true,
     isAdmin,
     live: LIVE,
     invite: INVITE,
@@ -127,6 +127,15 @@ function startTrack(track: Track) {
 
 function addTrack(track: Track, playNow: boolean) {
   const room = getRoom();
+  const url = String(track.url || "");
+  const existing = url
+    ? room.library.find((t) => t.url === url) || (room.current && room.current.url === url ? room.current : null)
+    : null;
+  if (existing) {
+    if (playNow) startTrack(existing);
+    else if (!room.queue.some((t) => t.id === existing.id || t.url === url)) room.queue.push(existing);
+    return room;
+  }
   room.library = [track, ...room.library.filter((t) => t.id !== track.id)].slice(0, 200);
   if (!room.current || playNow) startTrack(track);
   else room.queue.push(track);
@@ -911,7 +920,7 @@ export default async function handler(req: any, res: any) {
     if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl"].includes(type)) {
       return res.status(403).json({ error: "Only group admins can DJ. Join live to listen.", live: LIVE, ...publicRoom(false) });
     }
-    if (type === "play") playPause(id, name);
+    if (type === "play") play(id, name);
     else if (type === "pause") pause(id, name);
     else if (type === "skip") skip(id, name);
     else if (type === "queue") queueTrack(String(body.trackId || ""), id, name);

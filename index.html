@@ -39,9 +39,8 @@
     .cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .cover.live { box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 40px rgba(212,175,55,.25); }
     .now { text-align: center; margin-bottom: 8px; }
-    .transport { display: flex; justify-content: center; align-items: center; gap: 16px; margin: 8px 0 16px; }
-    .transport .btn { width: 56px; height: 56px; border-radius: 50%; flex: none; font-size: 1.25rem; }
-    .transport .go { width: 72px; height: 72px; background: var(--accent); color: var(--accent-fg); font-size: 1.6rem; }
+    .transport { margin: 8px 0 12px; }
+    .transport .btn { width: 100%; }
     .now { text-align: center; margin-bottom: 20px; }
     .now p { margin: 0; color: var(--muted); font-size: 0.9rem; }
     .bar { height: 4px; background: var(--subtle); border-radius: 99px; overflow: hidden; margin: 16px 0 8px; }
@@ -66,7 +65,7 @@
     label { font-size: 0.8rem; color: var(--muted); }
     input[type="file"] { width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit; }
     .made { margin-top: 20px; color: var(--dim); font-size: 0.75rem; letter-spacing: 0.04em; text-align: center; }
-    #videowrap { max-width: 28rem; margin: 0 auto; padding: 0 16px 28px; }
+    #videowrap, #ytbox { max-width: 28rem; margin: 0 auto; padding: 0 0 8px; }
   </style>
 </head>
 <body>
@@ -77,6 +76,7 @@
         <video id="feed" src="/radio.mp4" poster="/radio.jpg" autoplay loop muted playsinline webkit-playsinline></video>
       </div>
     </div>
+    <div id="ytbox"></div>
     <div class="now">
       <h2 id="np-title">MT Radio</h2>
       <p id="np-sub">Tap Play to hear it</p>
@@ -84,8 +84,10 @@
       <div class="times"><span id="np-t0">0:00</span><span id="np-t1">0:00</span></div>
     </div>
     <div class="transport">
-      <button type="button" class="btn ghost go" id="play">▶</button>
-      <button type="button" class="btn ghost" id="skip">⏭</button>
+      <button type="button" class="btn primary" id="play">Play</button>
+    </div>
+    <div class="row-btns">
+      <button type="button" class="btn ghost" id="skip">Skip</button>
     </div>
     <p class="err" id="status"></p>
     <div id="desk"></div>
@@ -125,6 +127,7 @@
     let srcDraft = "";
     let busy = "";
     let holdPaint = 0;
+    let wantPlay = false;
     const audio = document.getElementById("audio");
 
     function fmt(s) {
@@ -217,45 +220,79 @@
       if (cur.playUrl) return cur.playUrl;
       if (cur.kind === "station") return "/hold.mp3";
       if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
-      return abs(cur.url || "");
+      return abs(cur.url || "") || "/hold.mp3";
+    }
+    function isOnAir() {
+      var cur = room.current;
+      return !!(wantPlay && cur && cur.kind !== "station");
+    }
+    function syncVideo() {
+      var box = document.getElementById("ytbox");
+      if (!box) return;
+      var cur = room.current;
+      if (!wantPlay || !cur || cur.kind !== "youtube") {
+        if (syncVideo.key) { box.innerHTML = ""; syncVideo.key = ""; }
+        return;
+      }
+      var id = ytId(cur.url);
+      if (!id) return;
+      if (syncVideo.key === id && box.firstChild) return;
+      syncVideo.key = id;
+      box.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0" allow="autoplay;encrypted-media;fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:0 0 12px"></iframe>';
     }
     function syncAudio() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
-      if (!room.current || room.paused) {
+      if (!wantPlay) {
         try { audio.pause(); } catch (e) {}
         return;
       }
       var href = mediaHref();
-      if (!href) return;
+      if (!href) {
+        syncVideo();
+        return;
+      }
       try {
         if (audio.getAttribute("data-src") !== href) {
           audio.src = href;
           audio.setAttribute("data-src", href);
         }
       } catch (e) {}
-      var want = pos();
-      try {
-        if (audio.src && Math.abs((audio.currentTime || 0) - want) > 1.5) audio.currentTime = want;
-      } catch (e2) {}
       audio.play().catch(function () {});
+      syncVideo();
     }
     function hitPlay() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
-      syncAudio();
-      act("play");
+      wantPlay = !wantPlay;
+      if (room.isAdmin) act(wantPlay ? "play" : "pause");
+      if (wantPlay) {
+        var href = mediaHref();
+        if (href) {
+          try {
+            if (audio.getAttribute("data-src") !== href) {
+              audio.src = href;
+              audio.setAttribute("data-src", href);
+            }
+          } catch (e) {}
+          audio.play().catch(function () {});
+        }
+        syncVideo();
+      } else {
+        try { audio.pause(); } catch (e) {}
+      }
+      chrome();
     }
     function chrome() {
       var cur = room.current;
-      var onAir = !!(cur && !room.paused);
+      var onAir = wantPlay;
       var titleEl = document.getElementById("np-title");
       var subEl = document.getElementById("np-sub");
       var playEl = document.getElementById("play");
       var st = document.getElementById("status");
-      if (titleEl) titleEl.textContent = cur ? cur.title : STATION;
-      if (subEl) subEl.textContent = cur ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : TAGLINE;
-      if (playEl) playEl.textContent = onAir ? "⏸" : "▶";
+      if (titleEl) titleEl.textContent = cur && cur.kind !== "station" ? cur.title : STATION;
+      if (subEl) subEl.textContent = onAir ? ((cur && cur.kind !== "station" ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : "MT Radio live")) : "Tap Play to hear it";
+      if (playEl) playEl.textContent = onAir ? "Pause" : "Play";
       if (st) st.textContent = busy || err || "";
       tickBar();
     }
@@ -292,7 +329,7 @@
       bootRoom();
       if (!file) return;
       if (!room.isAdmin) {
-        err = "Only group admins can add tracks. Tap Join live to listen.";
+        err = "Only group admins can add tracks. Tap Play to listen.";
         paint();
         return;
       }
@@ -333,6 +370,7 @@
         }
         room = data;
         err = "";
+        wantPlay = true;
         syncAudio();
         paint();
       } catch (e) {
@@ -363,7 +401,8 @@
       try {
         await act("addUrl", { url: url, title: "" });
         srcDraft = "";
-        err = "Playing now in this player.";
+        err = "Playing now. Tap Play if you do not hear it.";
+        wantPlay = true;
         syncAudio();
       } catch (e2) {
         err = "Could not add that stream.";
@@ -405,10 +444,7 @@
     }
 
     function liveButton() {
-      if (room.isAdmin) {
-        return '<p class="hint">Adding a track starts it here. Testers hear it on the live bar — this page does not jump to the group.</p>';
-      }
-      return '<a class="btn primary" id="live" href="' + escapeHtml(liveHref()) + '" style="margin: 8px 0 12px">Join live stream</a>';
+      return "";
     }
 
     function paint() {
@@ -468,10 +504,7 @@
         }
       }
       var add = document.getElementById("addurl");
-      if (add) {
-        add.onclick = addUrl;
-        add.onpointerdown = addUrl;
-      }
+      if (add) add.onclick = addUrl;
       document.querySelectorAll("[data-q]").forEach(function (btn) {
         btn.onclick = function () { act("queue", { trackId: btn.getAttribute("data-q") }); };
       });
