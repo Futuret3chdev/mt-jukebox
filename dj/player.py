@@ -140,17 +140,10 @@ def to_wav(src, dest, start=0):
 
 
 def audio_stream(path):
-    ff = shutil.which("ffmpeg") or "/usr/local/bin/ffmpeg"
-    cmd = (
-        ff
-        + " -hide_banner -loglevel error -re -stream_loop -1 -i "
-        + json.dumps(path)
-        + " -f s16le -ac 2 -ar 48000 pipe:1"
-    )
     return Stream(
         microphone=AudioStream(
-            MediaSource.SHELL,
-            cmd,
+            MediaSource.FILE,
+            path,
             AudioParameters(bitrate=48000, channels=2),
         ),
     )
@@ -415,6 +408,15 @@ async def main():
     pause_votes = 0
     print("DJ_READY", flush=True)
 
+    @user_calls.on_update()
+    async def _on_update(client, update):
+        nonlocal last
+        name = type(update).__name__
+        print("call_update", name, flush=True)
+        if "Ended" in name:
+            last = ""
+            print("stream_ended replay", flush=True)
+
     async def ensure_call():
         try:
             peer = await user.resolve_peer(CHAT_ID)
@@ -449,11 +451,27 @@ async def main():
                 joined = True
                 bot_on = False
                 print("user_started_call", flush=True)
-                return True
             except Exception as e:
                 print("user_start_err", type(e).__name__, e, flush=True)
                 joined = False
                 return False
+            await asyncio.sleep(6)
+            for attempt in range(6):
+                try:
+                    await bot_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=False))
+                    bot_on = True
+                    print("bot_joined", attempt, flush=True)
+                    try:
+                        await user_calls.leave_call(CHAT_ID, close=False)
+                        print("user_left_for_listeners", flush=True)
+                    except Exception as le:
+                        print("leave_err", le, flush=True)
+                    return True
+                except Exception as e:
+                    print("bot_join_try", attempt, type(e).__name__, e, flush=True)
+                    await asyncio.sleep(3)
+            print("bot_join_fail keep user as DJ", flush=True)
+            return True
         try:
             await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=False))
             joined = True
