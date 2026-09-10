@@ -28,6 +28,7 @@ type Room = {
 
 const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
 const APP = "https://mt-house-jukebox.vercel.app/";
+const ART = "https://mt-house-jukebox.vercel.app/radio.jpg";
 const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
 const INVITE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
 const GROUP = -1002671373361;
@@ -215,39 +216,64 @@ function getAudio(id: string) {
 
 async function lyricsFor(track: Track | null) {
   if (!track || track.kind === "station") return STATION.name + "\n" + STATION.tagline;
-  const title = stripFileJunk(track.title);
-  const artist = stripFileJunk(track.artist);
-  const q = encodeURIComponent([artist, title].filter(Boolean).join(" ").trim() || title);
-  try {
-    const r = await fetch("https://lrclib.net/api/search?q=" + q, { headers: { "User-Agent": "MT-Radio" } });
-    const arr = (await r.json()) as { plainLyrics?: string; syncedLyrics?: string }[];
-    const hit = Array.isArray(arr) && arr.find((x) => x.plainLyrics || x.syncedLyrics);
-    const text = (hit && (hit.plainLyrics || hit.syncedLyrics)) || "";
-    if (text) return stripSync(text);
-  } catch {
-    /* backup */
+  if (track.kind === "youtube" || track.kind === "twitch" || track.kind === "kick" || track.kind === "radio") {
+    return track.title + " is a live stream — lyrics aren't attached to this source.";
+  }
+  const { artist, title } = parseArtistTitle(track);
+  const tries = [
+    "https://lrclib.net/api/get?artist_name=" + encodeURIComponent(artist) + "&track_name=" + encodeURIComponent(title),
+    "https://lrclib.net/api/search?q=" + encodeURIComponent((artist + " " + title).trim()),
+    "https://lrclib.net/api/search?track_name=" + encodeURIComponent(title) + "&artist_name=" + encodeURIComponent(artist),
+    "https://lrclib.net/api/search?q=" + encodeURIComponent(title),
+  ];
+  for (const url of tries) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": "MT-Radio/1.0 (https://mt-house-jukebox.vercel.app)" } });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      const hit = rows.find((x: any) => x && (x.plainLyrics || x.syncedLyrics));
+      const text = hit && (hit.plainLyrics || hit.syncedLyrics);
+      if (text) return (artist ? artist + " — " + title + "\n\n" : title + "\n\n") + stripSync(String(text));
+    } catch {
+      /* next */
+    }
   }
   try {
     const r = await fetch(
       "https://api.lyrics.ovh/v1/" + encodeURIComponent(artist || "Unknown") + "/" + encodeURIComponent(title),
     );
     const j = (await r.json()) as { lyrics?: string };
-    if (j.lyrics) return j.lyrics.trim();
+    if (j.lyrics) return artist + " — " + title + "\n\n" + j.lyrics.trim();
   } catch {
     /* none */
   }
-  return "No lyrics found for " + title + ".";
+  return "No lyrics for " + (artist ? artist + " — " : "") + title + ".";
 }
 
 function stripSync(text: string) {
   return text.replace(/\[\d+:\d+[^\]]*\]/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function stripFileJunk(s: string) {
+function cleanName(s: string) {
   return String(s || "")
-    .replace(/\.(mp3|m4a|wav|aac|ogg|flac)$/i, "")
+    .replace(/\.(mp3|m4a|wav|aac|ogg|flac|mp4|webm|mov)$/i, "")
     .replace(/[_]+/g, " ")
+    .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function parseArtistTitle(track: Track) {
+  let title = cleanName(track.title);
+  let artist = cleanName(track.artist);
+  const userish = !artist || /futuret3ch|xai|guest|mt radio|admin|^dj$/i.test(artist) || artist === title;
+  const m = title.match(/^(.+?)\s[-–—]\s(.+)$/);
+  if (m && userish) {
+    artist = m[1];
+    title = m[2];
+  }
+  if (/^2\s*pac$/i.test(artist)) artist = "2Pac";
+  return { artist, title };
 }
 
 function parseSource(raw: string): { kind: string; url: string; title: string; artist: string } | null {
@@ -281,11 +307,16 @@ function parseSource(raw: string): { kind: string; url: string; title: string; a
   if (host.endsWith("bandcamp.com")) {
     return { kind: "stream", url, title: "Bandcamp", artist: "MT Radio" };
   }
+  if (/\.(mp4|webm|mov|mkv|m4v)(?:$|[?#])/i.test(path)) {
+    const name = decodeURIComponent(u.pathname.split("/").pop() || "Video").replace(/\.[^.]+$/, "");
+    return { kind: "video", url, title: name, artist: "MT Radio" };
+  }
+  if (/\.(mp3|aac|ogg|opus|m4a|wav|flac)(?:$|[?#])/i.test(path) || /tmpfiles\.org|catbox\.moe|litterbox/.test(host)) {
+    const name = decodeURIComponent(u.pathname.split("/").pop() || "Audio").replace(/\.[^.]+$/, "");
+    return { kind: "mp3", url, title: name, artist: "MT Radio" };
+  }
   if (/\.(m3u8?|pls)(?:$|[?#])/i.test(path) || /icecast|shoutcast|listen/i.test(url) || /:(8000|8443|8080|8008)\b/.test(url)) {
     return { kind: "radio", url, title: "Radio stream", artist: "MT Radio" };
-  }
-  if (/\.(mp3|aac|ogg|opus|m4a)(?:$|[?#])/i.test(path)) {
-    return { kind: "stream", url, title: "Audio stream", artist: "MT Radio" };
   }
   return { kind: "stream", url, title: host, artist: "MT Radio" };
 }
@@ -375,26 +406,58 @@ function tgName(from: any) {
   return n || from.username || "Someone";
 }
 
+function fmtTime(s: number) {
+  if (!isFinite(s) || s < 0) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ":" + String(sec).padStart(2, "0");
+}
+
+function progressBar(t: number, dur: number) {
+  const n = 14;
+  if (!dur) return "●" + "▬".repeat(n - 1);
+  const i = Math.max(0, Math.min(n - 1, Math.round((t / dur) * (n - 1))));
+  return "▬".repeat(i) + "●" + "▬".repeat(n - 1 - i);
+}
+
+function nowPos() {
+  const room = getRoom();
+  if (!room.current) return 0;
+  if (room.paused) return room.pausePos || 0;
+  if (!room.startedAt) return 0;
+  return Math.max(0, (Date.now() - room.startedAt) / 1000);
+}
+
 function nowText() {
   const room = getRoom();
   const cur = room.current;
-  if (!cur) return STATION.name + " is on air.\n" + STATION.tagline + "\nTap Join live — voice chat at the top of SoftwareTesters.";
-  return (room.paused ? "Paused: " : "Now on MT Radio: ") + cur.title + (cur.artist ? " — " + cur.artist : "");
+  if (!cur) {
+    return "MT Radio  ·  $MT\nOn air\n" + STATION.tagline + "\n\nTap Join live — color video in SoftwareTesters.";
+  }
+  const { artist, title } = parseArtistTitle(cur);
+  const t = nowPos();
+  const dur = cur.duration || 0;
+  const state = room.paused ? "⏸ Paused" : "▶ Playing";
+  return (
+    "MT Radio  ·  $MT\n" +
+    state + "\n" +
+    (artist ? artist + " — " : "") + title + "\n" +
+    progressBar(t, dur) + "  " + fmtTime(t) + (dur ? " / " + fmtTime(dur) : "") + "\n" +
+    STATION.tagline
+  );
 }
 
 function liveKeyboard() {
   return {
-    inline_keyboard: [[{ text: "Join MT Radio live", url: LIVE }]],
+    inline_keyboard: [
+      [{ text: "▶  Join live", url: LIVE }],
+      [{ text: "Open player", web_app: { url: APP } }],
+    ],
   };
 }
 
 function dmKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "Open menu in DMs", url: BOT_DM }],
-      [{ text: "Join MT Radio live", url: LIVE }],
-    ],
-  };
+  return liveKeyboard();
 }
 
 function isPrivateChat(chat: any) {
@@ -402,20 +465,28 @@ function isPrivateChat(chat: any) {
 }
 
 function menuKeyboard(admin: boolean) {
-  if (!admin) return liveKeyboard();
+  const room = getRoom();
+  const playing = !!(room.current && !room.paused);
+  if (!admin) {
+    return {
+      inline_keyboard: [
+        [{ text: "▶  Join live", url: LIVE }],
+        [{ text: "📜  Lyrics", callback_data: "lyrics" }, { text: "Open player", web_app: { url: APP } }],
+      ],
+    };
+  }
   return {
     inline_keyboard: [
       [
-        { text: "Play", callback_data: "play" },
-        { text: "Pause", callback_data: "pause" },
-        { text: "Skip", callback_data: "skip" },
+        { text: playing ? "⏸" : "▶", callback_data: "play" },
+        { text: "⏭", callback_data: "skip" },
       ],
       [
-        { text: "Queue", callback_data: "queue" },
-        { text: "Lyrics", callback_data: "lyrics" },
+        { text: "📜  Lyrics", callback_data: "lyrics" },
+        { text: "☰  Queue", callback_data: "queue" },
       ],
-      [{ text: "Join MT Radio live", url: LIVE }],
-      [{ text: "Open DJ desk", web_app: { url: APP } }],
+      [{ text: "▶  Join live", url: LIVE }],
+      [{ text: "Open player", web_app: { url: APP } }],
     ],
   };
 }
@@ -443,9 +514,22 @@ async function dmUser(from: any, text: string, markup: any) {
   });
 }
 
+async function sendPlayer(chatId: number, caption: string, markup: any) {
+  await tg("sendPhoto", {
+    chat_id: chatId,
+    photo: ART,
+    caption: String(caption || nowText()).slice(0, 1024),
+    reply_markup: markup,
+  });
+}
+
 async function shortcutToDm(from: any, chat: any, messageId: number | undefined, text: string, markup: any) {
   await wipe(chat, messageId);
-  await dmUser(from, text, markup);
+  try {
+    await sendPlayer(from.id, text, markup);
+  } catch {
+    await dmUser(from, text, markup);
+  }
   return true;
 }
 
@@ -453,7 +537,7 @@ async function sendMenu(from: any, chat: any, messageId?: number, extra?: string
   const text = (extra ? extra + "\n\n" : "") + nowText();
   const markup = menuKeyboard(admin);
   if (isPrivateChat(chat)) {
-    await tg("sendMessage", { chat_id: chat.id, text, reply_markup: markup });
+    await sendPlayer(chat.id, text, markup);
     return;
   }
   await shortcutToDm(from, chat, messageId, text, markup);
@@ -476,7 +560,7 @@ async function handleTelegram(update: any) {
       text = "Only group admins can DJ.\n\n" + nowText();
       markup = liveKeyboard();
     } else if (data === "play") {
-      play(id, name);
+      playPause(id, name);
       text = nowText();
     } else if (data === "pause") {
       pause(id, name);
@@ -513,15 +597,29 @@ async function handleTelegram(update: any) {
       await shortcutToDm(from, chat, cb.message?.message_id, text, markup);
       return;
     }
-    try {
-      await tg("editMessageText", {
-        chat_id: chat.id,
-        message_id: cb.message.message_id,
-        text,
-        reply_markup: markup,
-      });
-    } catch {
+    if (data === "lyrics") {
       await tg("sendMessage", { chat_id: chat.id, text, reply_markup: markup });
+      return;
+    }
+    const isPhoto = Array.isArray(cb.message?.photo) && cb.message.photo.length;
+    try {
+      if (isPhoto) {
+        await tg("editMessageCaption", {
+          chat_id: chat.id,
+          message_id: cb.message.message_id,
+          caption: text.slice(0, 1024),
+          reply_markup: markup,
+        });
+      } else {
+        await tg("editMessageText", {
+          chat_id: chat.id,
+          message_id: cb.message.message_id,
+          text,
+          reply_markup: markup,
+        });
+      }
+    } catch {
+      await sendPlayer(chat.id, text, markup);
     }
     return;
   }
@@ -653,8 +751,8 @@ async function handleTelegram(update: any) {
 }
 async function setupBot() {
   const g = globalThis as any;
-  if (g.__jbBotReady === "silent-group-1") return;
-  g.__jbBotReady = "silent-group-1";
+  if (g.__jbBotReady === "player-art-1") return;
+  g.__jbBotReady = "player-art-1";
   const groupCmds = [
     { command: "live", description: "Join MT Radio live" },
     { command: "now", description: "What's playing" },

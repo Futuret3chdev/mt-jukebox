@@ -30,17 +30,18 @@
     .btn.ghost, a.btn.ghost { background: var(--elev); }
     .row-btns { display: flex; gap: 12px; margin: 20px 0; }
     .row-btns .btn { flex: 1; }
-    .disc-wrap { display: grid; place-items: center; margin-bottom: 24px; }
-    .disc {
-      width: 220px; height: 220px; border-radius: 50%; position: relative; overflow: hidden;
-      background: radial-gradient(circle at 50% 50%, transparent 0 32%, #17171a 32.5%),
-        repeating-radial-gradient(circle at 50% 50%, #17171a 0 2px, #111113 3px 6px);
-      box-shadow: inset 0 0 0 10px #0c0c0e;
+    .cover-wrap { display: grid; place-items: center; margin: 8px 0 20px; }
+    .cover {
+      width: min(72vw, 280px); height: min(72vw, 280px); border-radius: 28px; overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+      background: #111;
     }
-    .disc.spin { animation: spin 8s linear infinite; }
-    .disc img { position: absolute; inset: 33%; width: 34%; height: 34%; object-fit: contain; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .disc.spin { animation: none; } }
+    .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cover.live { box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 40px rgba(212,175,55,.25); }
+    .now { text-align: center; margin-bottom: 8px; }
+    .transport { display: flex; justify-content: center; align-items: center; gap: 16px; margin: 8px 0 16px; }
+    .transport .btn { width: 56px; height: 56px; border-radius: 50%; flex: none; font-size: 1.25rem; }
+    .transport .go { width: 72px; height: 72px; background: var(--accent); color: var(--accent-fg); font-size: 1.6rem; }
     .now { text-align: center; margin-bottom: 20px; }
     .now p { margin: 0; color: var(--muted); font-size: 0.9rem; }
     .bar { height: 4px; background: var(--subtle); border-radius: 99px; overflow: hidden; margin: 16px 0 8px; }
@@ -79,6 +80,7 @@
     const LIVE = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/joinchat/WgogJ0YgKAQzN2Q9";
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
+    const RADIO = "/radio.jpg";
     const STATION = "MT Radio";
     const TAGLINE = "MT ecosystem · made by FutureT3ch and MemeTorrent";
     const tg = window.Telegram && window.Telegram.WebApp;
@@ -188,18 +190,57 @@
       }
     }
 
+    function ytId(url) {
+      var m = String(url || "").match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/);
+      return m ? m[1] : "";
+    }
+    function twitchChan(url) {
+      var m = String(url || "").match(/twitch\.tv\/([A-Za-z0-9_]+)/i);
+      return m ? m[1] : "";
+    }
     function syncAudio() {
-      if (!room.isAdmin || !room.current || room.current.kind === "spotify" || room.current.kind === "station") {
+      if (!room.current || room.current.kind === "spotify" || room.current.kind === "station") {
         try { audio.pause(); } catch (e) {}
         return;
       }
-      if (["youtube", "twitch", "kick", "radio", "stream"].indexOf(room.current.kind || "") >= 0) return;
+      if (["youtube", "twitch", "kick", "radio"].indexOf(room.current.kind || "") >= 0) {
+        try { audio.pause(); } catch (e) {}
+        return;
+      }
       const href = abs(room.current.url);
-      if (audio.src !== href) audio.src = room.current.url;
+      if (href && audio.src !== href) audio.src = room.current.url;
       const want = pos();
       if (Math.abs((audio.currentTime || 0) - want) > 0.9) audio.currentTime = want;
       if (room.paused) audio.pause();
       else audio.play().catch(function () {});
+    }
+    function ensureVideo() {
+      var wrap = document.getElementById("videowrap");
+      if (!wrap) return;
+      var cur = room.current;
+      if (!cur || room.paused) return;
+      var key = cur.id + ":" + (cur.kind || "");
+      if (ensureVideo.key === key && wrap.firstChild) return;
+      ensureVideo.key = key;
+      var t = Math.floor(pos());
+      if (cur.kind === "youtube") {
+        var id = ytId(cur.url);
+        wrap.innerHTML = id
+          ? '<iframe src="https://www.youtube.com/embed/' + id + "?start=" + t + '&autoplay=1" allow="autoplay;encrypted-media" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
+          : "";
+      } else if (cur.kind === "twitch") {
+        var ch = twitchChan(cur.url);
+        wrap.innerHTML = ch
+          ? '<iframe src="https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=mt-house-jukebox.vercel.app&autoplay=true" allow="autoplay" style="width:100%;aspect-ratio:16/9;border:0;border-radius:12px;margin:8px 0"></iframe>'
+          : "";
+      } else if (cur.kind === "video" || /\.(mp4|webm|mov)(\?|$)/i.test(cur.url || "")) {
+        wrap.innerHTML = '<video src="' + escapeHtml(abs(cur.url)) + '" autoplay playsinline controls style="width:100%;border-radius:12px;margin:8px 0"></video>';
+        var v = wrap.querySelector("video");
+        if (v) v.currentTime = t;
+      } else {
+        wrap.innerHTML = "";
+        ensureVideo.key = "";
+      }
     }
 
     async function hostFile(file) {
@@ -362,32 +403,35 @@
       var hadSrc = document.activeElement && document.activeElement.id === "src";
       var sel = srcEl ? srcEl.selectionStart : srcDraft.length;
       document.getElementById("app").innerHTML =
-        '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>' +
-        "<h1>MT Radio</h1>" +
-        '<p class="lead">Tap Join live, then tap the live bar at the top of SoftwareTesters so you hear MT Radio.</p>' +
-        '<div class="disc-wrap"><div class="disc ' + (onAir ? "spin" : "") + '"><img src="' + LOGO + '" alt="" /></div></div>' +
-        '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || "On air") + "</p>" +
+        '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT Radio · $MT</p></div>' +
+        "<h1>Now playing</h1>" +
+        '<div class="cover-wrap"><div class="cover ' + (onAir ? "live" : "") + '"><img src="' + RADIO + '" alt="$MT Radio" /></div></div>' +
+        '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || TAGLINE) + "</p>" +
         '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
         '<div class="times"><span>' + fmt(t) + "</span><span>" + fmt(dur) + "</span></div></div>" +
-        liveButton() +
+        '<div id="videowrap"></div>' +
         (admin
-          ? '<div class="row-btns"><button class="btn ghost" id="play">' + (onAir ? "Pause" : "Play") + '</button><button class="btn ghost" id="skip">Skip</button></div>' +
-            '<button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button>"
-          : '<p class="hint">Everyone can listen. Only group admins and mods can add tracks or open the DJ desk.</p>') +
+          ? '<div class="transport"><button class="btn ghost go" id="play" aria-label="Play or pause">' + (onAir ? "⏸" : "▶") + '</button><button class="btn ghost" id="skip" aria-label="Skip">⏭</button></div>'
+          : "") +
+        liveButton() +
+        '<div class="row-btns"><button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button></div>" +
+        (admin ? "" : '<p class="hint">Same song, same time. Join live to hear it in the group in color.</p>') +
         (showLyrics ? '<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">' + escapeHtml(lyrics || "Looking up…") + "</p></div>" : "") +
         (admin
-          ? '<div class="panel"><h3>Add songs</h3>' +
-            '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />' +
-            '<p class="hint">Files, not Photos. Any size.</p>' +
+          ? '<div class="panel"><h3>Add to the player</h3>' +
+            '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,.mp4,.webm,.mov,audio/*,video/*" multiple />' +
+            '<p class="hint">Files, not Photos. Audio or video. Any size.</p>' +
             "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
             '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
             '<button class="btn ghost" id="addurl" type="button">Add stream</button></div>' +
-            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ")</h3>" + rows(room.queue || [], "queue") + "</div>" +
+            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ")</h3>' + rows(room.queue || [], "queue") + "</div>" +
             '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + "</div>"
           : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
         (err && !busy ? '<p class="err">' + escapeHtml(err) + "</p>" : "") +
-        (busy ? '<p class="err" style="color:#fde68a">' + escapeHtml(busy) + "</p>" : (!err ? '<p class="hint">Join live opens the SoftwareTesters voice chat. Close this page — MT Radio stays on.</p>' : "")) +
-        '<p class="made">MT Radio · FutureT3ch × MemeTorrent</p>';
+        (busy ? '<p class="err" style="color:#fde68a">' + escapeHtml(busy) + "</p>" : (!err ? '<p class="hint">Close this page — MT Radio stays on in the live chat.</p>' : "")) +
+        '<p class="made">MT Radio · FutureT3ch × MemeTorrent · $MT</p>';
+
+      ensureVideo();
 
       var liveEl = document.getElementById("live");
       if (liveEl) liveEl.onclick = openLive;
