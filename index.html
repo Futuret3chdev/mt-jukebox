@@ -184,6 +184,26 @@
         if (!res.ok) throw new Error("room");
         room = await res.json();
         if (err && /room|linked|update the room/i.test(err)) err = "";
+        try {
+          var saved = JSON.parse(localStorage.getItem("jb-lib") || "[]");
+          if (saved.length) {
+            var have = (room.library || []).map(function (t) { return t.id + t.url; });
+            saved.forEach(function (t) {
+              if (t && t.url && have.indexOf(t.id + t.url) < 0) {
+                room.library = room.library || [];
+                room.library.push(t);
+              }
+            });
+            if ((room.library || []).length > saved.length) {
+              localStorage.setItem("jb-lib", JSON.stringify(room.library.slice(0, 200)));
+            }
+            if (saved.length && (!room.library || room.library.length < saved.length) && room.isAdmin) {
+              act("seed", { tracks: saved });
+            }
+          } else if (room.library && room.library.length) {
+            localStorage.setItem("jb-lib", JSON.stringify(room.library.slice(0, 200)));
+          }
+        } catch (e0) {}
         syncAudio();
         chrome();
         if (busy || editing() || Date.now() < holdPaint) return;
@@ -356,44 +376,22 @@
       holdPaint = Date.now() + 20000;
       chrome();
       try {
-        if (file.size > 3500000) {
-          const url = await hostFile(file);
-          if (!url) {
-            err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
-            busy = "";
-            chrome();
-            return;
-          }
-          await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, "") });
-          wantPlay = true;
-          busy = "";
-          err = "Added " + file.name;
-          chrome();
-          return;
-        }
-        const q = new URLSearchParams({
-          title: file.name.replace(/\.[^.]+$/, ""),
-          name: me.name,
-          id: me.id,
-        });
-        const buf = await file.arrayBuffer();
-        const res = await fetch("/api/room?" + q, {
-          method: "POST",
-          headers: Object.assign({ "Content-Type": file.type || "application/octet-stream" }, initData ? { "X-Telegram-Init-Data": initData } : {}),
-          body: buf,
-        });
-        const data = await res.json().catch(function () { return {}; });
-        if (!res.ok) {
-          err = data.error || "Could not add " + file.name;
+        const url = await hostFile(file);
+        if (!url) {
+          err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
           busy = "";
           chrome();
           return;
         }
-        room = data;
-        err = "Added " + file.name;
-        wantPlay = true;
+        var idle = !room.current || room.current.kind === "station";
+        await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, ""), playNow: idle });
+        wantPlay = wantPlay || idle;
         busy = "";
-        syncAudio();
+        err = "Added " + file.name + (idle ? "" : " — queued");
+        try {
+          var lib = (room.library || []).slice();
+          localStorage.setItem("jb-lib", JSON.stringify(lib.slice(0, 200)));
+        } catch (e1) {}
         chrome();
         paint();
       } catch (e) {
@@ -416,22 +414,24 @@
       srcDraft = url;
       if (!url) {
         err = "Paste a YouTube, radio, or stream link first.";
-        paint();
+        chrome();
         return;
       }
       busy = "Adding stream…";
-      err = "Adding stream… keep this open.";
-      paint();
+      err = "Adding stream…";
+      chrome();
       try {
-        await act("addUrl", { url: url, title: "" });
+        var idle = !room.current || room.current.kind === "station";
+        await act("addUrl", { url: url, title: "", playNow: idle });
         srcDraft = "";
-        err = "Playing now. Tap Play if you do not hear it.";
-        wantPlay = true;
+        err = idle ? "Playing now. Tap Play if you do not hear it." : "Queued.";
+        wantPlay = wantPlay || idle;
         syncAudio();
       } catch (e2) {
         err = "Could not add that stream.";
       }
       busy = "";
+      chrome();
       paint();
     }
 
@@ -538,9 +538,9 @@
     }
 
     audio.addEventListener("ended", function () {
+      if (!isFinite(audio.duration) || audio.duration < 2) return;
       if (room.loop !== false) {
         try { audio.currentTime = 0; audio.play(); } catch (e) {}
-        if (room.isAdmin) act("replay");
         return;
       }
       if (room.isAdmin) act("skip");

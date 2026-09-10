@@ -133,16 +133,20 @@ function startTrack(track: Track) {
 function addTrack(track: Track, playNow: boolean) {
   const room = getRoom();
   const url = String(track.url || "");
-  const existing = url
-    ? room.library.find((t) => t.url === url) || (room.current && room.current.url === url ? room.current : null)
-    : null;
+  const title = String(track.title || "");
+  const existing = room.library.find(
+    (t) => t.id === track.id || (url && t.url === url && t.title === title),
+  );
   if (existing) {
-    if (playNow) startTrack(existing);
-    else if (!room.queue.some((t) => t.id === existing.id || t.url === url)) room.queue.push(existing);
+    if (playNow && (!room.current || room.current.kind === "station")) startTrack(existing);
+    else if (!room.queue.some((t) => t.id === existing.id)) room.queue.push(existing);
     return room;
   }
   room.library = [track, ...room.library.filter((t) => t.id !== track.id)].slice(0, 200);
-  if (!room.current || playNow) startTrack(track);
+  const idle = !room.current || room.current.kind === "station";
+  if (playNow && idle) startTrack(track);
+  else if (room.current && room.current.kind !== "station") room.queue.push(track);
+  else if (playNow) startTrack(track);
   else room.queue.push(track);
   return room;
 }
@@ -923,6 +927,29 @@ export default async function handler(req: any, res: any) {
       if (room.current) startTrack(room.current);
       return res.status(200).json(publicRoom(true));
     }
+    if ((type === "restore" || type === "seed") && (String(body.key || "") === DJ_KEY || true)) {
+      const whoSeed = await adminFromReq(req, body, String(body.id || "anon"));
+      if (String(body.key || "") === DJ_KEY || whoSeed.admin) {
+        const room = getRoom();
+        const tracks = Array.isArray(body.tracks) ? body.tracks : [];
+        for (const raw of tracks) {
+          if (!raw || !raw.url) continue;
+          const t = {
+            id: String(raw.id || newId()),
+            title: String(raw.title || "Track"),
+            artist: String(raw.artist || "MT Radio"),
+            url: String(raw.url),
+            addedBy: String(raw.addedBy || "Library"),
+            duration: Number(raw.duration || 0),
+            kind: String(raw.kind || "mp3"),
+          } as Track;
+          if (!room.library.some((x) => x.id === t.id || (x.url === t.url && x.title === t.title))) {
+            room.library.push(t);
+          }
+        }
+        return res.status(200).json(publicRoom(true));
+      }
+    }
     if (type === "lyrics") {
       const text = await lyricsFor(getRoom().current);
       return res.status(200).json({ ...publicRoom(who.admin), lyrics: text });
@@ -963,7 +990,7 @@ export default async function handler(req: any, res: any) {
           duration: 0,
           kind: src.kind,
         },
-        true,
+        body.playNow !== false,
       );
     }
     return res.status(200).json(publicRoom(who.admin));
