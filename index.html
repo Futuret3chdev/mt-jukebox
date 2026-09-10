@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0a0a0b" />
-  <title>MT Jukebox</title>
+  <title>MT Radio</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,13 +21,13 @@
     .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
     .brand img { width: 40px; height: 40px; object-fit: contain; }
     .kicker { font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 500; margin: 0; }
-    h1 { font-family: Fraunces, serif; font-size: 2rem; font-weight: 500; letter-spacing: -0.03em; margin: 4px 0 24px; }
+    h1 { font-family: Fraunces, serif; font-size: 2rem; font-weight: 500; letter-spacing: -0.03em; margin: 4px 0 8px; }
     h2 { font-family: Fraunces, serif; font-size: 1.35rem; font-weight: 500; margin: 0 0 4px; }
-    p.lead { color: var(--muted); }
+    p.lead { color: var(--muted); margin: 0 0 20px; }
     button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-    .btn { height: 48px; border-radius: 12px; font-weight: 600; width: 100%; }
-    .btn.primary { background: var(--accent); color: var(--accent-fg); }
-    .btn.ghost { background: var(--elev); }
+    a.btn, .btn { height: 48px; border-radius: 12px; font-weight: 600; width: 100%; display: grid; place-items: center; text-decoration: none; color: inherit; }
+    .btn.primary, a.btn.primary { background: var(--accent); color: var(--accent-fg); }
+    .btn.ghost, a.btn.ghost { background: var(--elev); }
     .row-btns { display: flex; gap: 12px; margin: 20px 0; }
     .row-btns .btn { flex: 1; }
     .disc-wrap { display: grid; place-items: center; margin-bottom: 24px; }
@@ -56,32 +56,31 @@
     .row button { margin-left: auto; height: 36px; padding: 0 14px; border-radius: 8px; background: var(--subtle); font-size: 0.8rem; font-weight: 500; }
     .hint, .err { color: var(--dim); font-size: 0.8rem; margin-top: 12px; }
     .err { color: #fca5a5; }
-    input[type="text"] {
-      width: 100%; height: 44px; border-radius: 8px; border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
-      background: var(--bg); color: var(--fg); padding: 0 12px; margin: 8px 0 16px; font: inherit;
+    input[type="text"], textarea {
+      width: 100%; border-radius: 8px; border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+      background: var(--bg); color: var(--fg); padding: 0 12px; margin: 8px 0 12px; font: inherit;
     }
+    input[type="text"] { height: 44px; }
+    textarea { min-height: 72px; padding: 10px 12px; resize: vertical; }
     label { font-size: 0.8rem; color: var(--muted); }
-    input[type="file"] {
-      width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit;
-    }
+    input[type="file"] { width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit; }
+    .made { margin-top: 20px; color: var(--dim); font-size: 0.75rem; letter-spacing: 0.04em; text-align: center; }
   </style>
 </head>
 <body>
   <div class="app" id="app">
-    <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
-    <h1>Jukebox</h1>
-    <p class="lead">Add music here, then tap Join live. Closing this page does not stop the stream.</p>
-    <div class="panel">
-      <h3>Add a song</h3>
-      <input id="file-boot" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />
-      <p class="hint">Pick from <strong>Files</strong>, not Photos. Or send the mp3 in SoftwareTesters.</p>
-    </div>
+    <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>
+    <h1>MT Radio</h1>
+    <p class="lead">Made by FutureT3ch and MemeTorrent. Tap Join live — that opens the group voice chat.</p>
+    <a class="btn primary" href="https://t.me/c/2671373361?voicechat">Join live stream</a>
   </div>
   <audio id="audio" playsinline></audio>
   <script>
-    const FALLBACK = [];
-    const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9?voicechat";
+    const LIVE = "https://t.me/c/2671373361?voicechat";
+    const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
+    const STATION = "MT Radio";
+    const TAGLINE = "MT ecosystem · made by FutureT3ch and MemeTorrent";
     const tg = window.Telegram && window.Telegram.WebApp;
     try {
       if (tg) {
@@ -99,9 +98,10 @@
     const me = u
       ? { id: String(u.id), name: tgName, username: u.username || "" }
       : { id: "guest-" + Math.random().toString(36).slice(2, 8), name: storedName, username: "" };
+    const initData = (tg && tg.initData) || "";
 
     let joined = false;
-    let room = { current: null, paused: true, startedAt: null, pausePos: 0, queue: [], library: [], listeners: [], hostId: null, hostName: "" };
+    let room = { current: null, paused: true, startedAt: null, pausePos: 0, queue: [], library: [], listeners: [], hostId: null, hostName: "", isAdmin: false, live: LIVE, station: { name: STATION, tagline: TAGLINE } };
     let err = "";
     let lyrics = "";
     let showLyrics = false;
@@ -119,65 +119,86 @@
       if (!room.startedAt) return 0;
       return Math.max(0, (Date.now() - room.startedAt) / 1000);
     }
-    function openLive() {
+    function liveHref() {
+      return room.live || LIVE;
+    }
+    function openLive(e) {
+      if (e) e.preventDefault();
+      var href = liveHref();
       try {
-        if (tg && tg.openTelegramLink) tg.openTelegramLink(LIVE);
-        else window.location.href = LIVE;
-      } catch (e) {
-        window.location.href = LIVE;
-      }
+        if (tg && tg.openTelegramLink) {
+          tg.openTelegramLink(href);
+          setTimeout(function () { try { if (tg.close) tg.close(); } catch (e2) {} }, 400);
+          return false;
+        }
+      } catch (err) {}
+      try { window.location.href = href; } catch (e3) {}
+      return false;
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }
+    }
+    function authHeaders() {
+      var h = { "Content-Type": "application/json" };
+      if (initData) h["X-Telegram-Init-Data"] = initData;
+      return h;
     }
 
     async function pull() {
       try {
         const q = new URLSearchParams({ id: me.id, name: me.name });
-        const res = await fetch("/api/room?" + q);
+        const res = await fetch("/api/room?" + q, { headers: authHeaders() });
         if (!res.ok) throw new Error("room");
         room = await res.json();
         if (err && /room|linked|update the room/i.test(err)) err = "";
         syncAudio();
         paint();
       } catch (e) {
-        err = "Room not linked yet — only you can hear this phone.";
+        err = "Could not reach MT Radio.";
       }
     }
 
     async function act(type, extra) {
       const res = await fetch("/api/room", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, id: me.id, name: me.name, ...(extra || {}) }),
+        headers: authHeaders(),
+        body: JSON.stringify({ type, id: me.id, name: me.name, initData: initData, ...(extra || {}) }),
       });
+      const data = await res.json().catch(function () { return {}; });
       if (res.ok) {
-        room = await res.json();
+        room = data;
         err = "";
         syncAudio();
         paint();
       } else {
-        err = "Could not update the room";
+        err = data.error || "Only group admins can DJ.";
+        if (data.live) room.live = data.live;
         paint();
       }
     }
 
     function syncAudio() {
-      if (!joined || !room.current || room.current.kind === "spotify") {
-        if (!room.current) audio.pause();
+      if (!room.isAdmin || !room.current || room.current.kind === "spotify" || room.current.kind === "station") {
+        try { audio.pause(); } catch (e) {}
         return;
       }
+      if (["youtube", "twitch", "kick", "radio", "stream"].indexOf(room.current.kind || "") >= 0) return;
       const href = abs(room.current.url);
       if (audio.src !== href) audio.src = room.current.url;
       const want = pos();
       if (Math.abs((audio.currentTime || 0) - want) > 0.9) audio.currentTime = want;
       if (room.paused) audio.pause();
-      else audio.play().catch(() => {});
+      else audio.play().catch(function () {});
     }
 
     async function upload(file) {
       bootRoom();
       if (!file) return;
+      if (!room.isAdmin) {
+        err = "Only group admins can add tracks. Tap Join live to listen.";
+        paint();
+        return;
+      }
       if (file.size > 4500000) {
         err = file.name + " is over 4.5 MB. Drop it in SoftwareTesters instead.";
         paint();
@@ -199,10 +220,10 @@
         const buf = await file.arrayBuffer();
         const res = await fetch("/api/room?" + q, {
           method: "POST",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
+          headers: Object.assign({ "Content-Type": file.type || "application/octet-stream" }, initData ? { "X-Telegram-Init-Data": initData } : {}),
           body: buf,
         });
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(function () { return {}; });
         if (!res.ok) {
           err = data.error || "Could not add " + file.name;
           paint();
@@ -218,42 +239,30 @@
       }
     }
 
-    function paintJoin() {
-      const detected = u ? `Detected Telegram name: <strong>${escapeHtml(me.name)}</strong>${me.username ? " · @" + escapeHtml(me.username) : ""}` : "Name used in the room";
-      document.getElementById("app").innerHTML = `
-        <div class="brand"><img src="${LOGO}" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
-        <h1>Jukebox</h1>
-        <p class="lead">This page is the remote. Sound is the SoftwareTesters <strong>live stream</strong> — Play opens it. Close this page, music stays on.</p>
-        <label for="name">${detected}</label>
-        <input id="name" type="text" value="${escapeHtml(me.name === "Guest" ? "" : me.name)}" placeholder="Your name" ${u ? "readonly" : ""} />
-        <button class="btn primary" id="join">Join and open live</button>
-        <p class="hint">${u ? "Using your Telegram name. Play opens the group live stream so you can close this page." : "iPhone needs this tap so sound is allowed."}</p>`;
-      document.getElementById("join").onclick = () => {
-        const n = document.getElementById("name").value.trim();
-        if (n && !u) {
-          me.name = n;
-          try { sessionStorage.setItem("jb-name", n); } catch (e) {}
-        }
-        bootRoom();
-        openLive();
-      };
+    async function addUrl() {
+      var el = document.getElementById("src");
+      var url = el ? el.value.trim() : "";
+      if (!url) return;
+      err = "Adding stream…";
+      paint();
+      await act("addUrl", { url: url, title: "" });
     }
 
     function rows(list, mode) {
-      if (!list.length) return `<p class="hint">${mode === "queue" ? "Nothing queued" : "No files yet — upload one"}</p>`;
-      return list.map((tr) => `
-        <div class="row">
-          <div><strong>${escapeHtml(tr.title)}</strong><span>${escapeHtml(tr.artist || tr.addedBy || "")}</span></div>
-          ${mode === "queue" ? `<button data-rm="${tr.id}">Remove</button>` : ""}
-          ${mode === "library" ? `<button data-q="${tr.id}">Queue</button><button data-del="${tr.id}">Delete</button>` : ""}
-        </div>`).join("");
+      if (!list.length) return '<p class="hint">' + (mode === "queue" ? "Nothing queued" : "No files yet") + "</p>";
+      return list.map(function (tr) {
+        var btns = "";
+        if (room.isAdmin && mode === "queue") btns = '<button data-rm="' + tr.id + '">Remove</button>';
+        if (room.isAdmin && mode === "library") btns = '<button data-q="' + tr.id + '">Queue</button><button data-del="' + tr.id + '">Delete</button>';
+        return '<div class="row"><div><strong>' + escapeHtml(tr.title) + "</strong><span>" + escapeHtml((tr.kind ? tr.kind + " · " : "") + (tr.artist || tr.addedBy || "")) + "</span></div>" + btns + "</div>";
+      }).join("");
     }
 
     function escapeHtml(s) {
-      return String(s || "").replace(/[&<>"']/g, (c) => {
-        if (c === "&") return "&amp;";
-        if (c === "<") return "&lt;";
-        if (c === ">") return "&gt;";
+      return String(s || "").replace(/[&<>"']/g, function (c) {
+        if (c === "&") return "&";
+        if (c === "<") return "<";
+        if (c === ">") return ">";
         if (c === '"') return "&#34;";
         return "&#39;";
       });
@@ -270,55 +279,54 @@
       if (times[1]) times[1].textContent = fmt(dur);
     }
 
+    function liveButton() {
+      return '<a class="btn primary" id="live" href="' + escapeHtml(liveHref()) + '" style="margin: 8px 0 12px">Join live stream</a>';
+    }
+
     function paint() {
-      if (!joined) return paintJoin();
       const cur = room.current;
+      const onAir = !!(cur && !room.paused);
       const dur = (cur && (cur.duration || audio.duration)) || 0;
       const t = pos();
       const pct = dur ? Math.min(100, (t / dur) * 100) : 0;
-      const nListen = (room.listeners && room.listeners.length) || 1;
-      document.getElementById("app").innerHTML = `
-        <div class="brand"><img src="${LOGO}" alt="MemeTorrent" /><p class="kicker">MemeTorrent · live</p></div>
-        <h1>Jukebox</h1>
-        <div class="disc-wrap"><div class="disc ${cur && !room.paused ? "spin" : ""}"><img src="${LOGO}" alt="" /></div></div>
-        <div class="now">
-          <h2>${cur ? escapeHtml(cur.title) : "Nothing on"}</h2>
-          <p>${cur ? escapeHtml(cur.artist) + " · " + escapeHtml(cur.addedBy) : "Queue a track or upload an mp3"}</p>
-          <div class="bar"><span style="width:${pct}%"></span></div>
-          <div class="times"><span>${fmt(t)}</span><span>${fmt(dur)}</span></div>
-        </div>
-        <div class="row-btns">
-          <button class="btn primary" id="play">${cur && !room.paused ? "Pause" : "Play"}</button>
-          <button class="btn ghost" id="skip">Skip</button>
-        </div>
-        <button class="btn primary" id="live" style="margin-top:-8px;margin-bottom:12px">Join live stream</button>
-        <button class="btn ghost" id="ly" style="margin-top:-8px">${showLyrics ? "Hide lyrics" : "Lyrics"}</button>
-        ${showLyrics ? `<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">${escapeHtml(lyrics || "Looking up…")}</p></div>` : ""}
-        <p class="meta"><span>${nListen} in the room</span><span>${escapeHtml(me.name)}</span></p>
-        <div class="panel">
-          <h3>Add songs</h3>
-          <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />
-          <p class="hint">Pick from <strong>Files</strong>, not Photos. Songs over 4.5 MB — send them in SoftwareTesters.</p>
-        </div>
-        <div class="panel">
-          <h3>Up next (${(room.queue || []).length})</h3>
-          ${rows(room.queue || [], "queue")}
-        </div>
-        <div class="panel">
-          <h3>Your files</h3>
-          ${rows(room.library || [], "library")}
-        </div>
-        ${err ? `<p class="err">${escapeHtml(err)}</p>` : `<p class="hint">Sound is the SoftwareTesters live stream. Tap Join live (Play does it too). Close this page — the stream keeps going.</p>`}`;
-      document.getElementById("play").onclick = () => {
-        const startLive = !room.current || room.paused;
-        act("play");
-        if (startLive) openLive();
-      };
-      document.getElementById("skip").onclick = () => act("skip");
-      const liveBtn = document.getElementById("live");
-      if (liveBtn) liveBtn.onclick = () => openLive();
-      const ly = document.getElementById("ly");
-      if (ly) ly.onclick = async () => {
+      const title = cur ? cur.title : STATION;
+      const sub = cur ? ((cur.artist || "") + (cur.addedBy ? " · " + cur.addedBy : "")) : TAGLINE;
+      const admin = !!room.isAdmin;
+      document.getElementById("app").innerHTML =
+        '<div class="brand"><img src="' + LOGO + '" alt="MemeTorrent" /><p class="kicker">MT ecosystem</p></div>' +
+        "<h1>MT Radio</h1>" +
+        '<p class="lead">' + TAGLINE + "</p>" +
+        '<div class="disc-wrap"><div class="disc ' + (onAir ? "spin" : "") + '"><img src="' + LOGO + '" alt="" /></div></div>' +
+        '<div class="now"><h2>' + escapeHtml(title) + "</h2><p>" + escapeHtml(sub || "On air") + "</p>" +
+        '<div class="bar"><span style="width:' + pct + '%"></span></div>' +
+        '<div class="times"><span>' + fmt(t) + "</span><span>" + fmt(dur) + "</span></div></div>" +
+        liveButton() +
+        (admin
+          ? '<div class="row-btns"><button class="btn ghost" id="play">' + (onAir ? "Pause" : "Play") + '</button><button class="btn ghost" id="skip">Skip</button></div>' +
+            '<button class="btn ghost" id="ly">' + (showLyrics ? "Hide lyrics" : "Lyrics") + "</button>"
+          : '<p class="hint">Everyone can listen. Only group admins and mods can add tracks or open the DJ desk.</p>') +
+        (showLyrics ? '<div class="panel"><h3>Lyrics</h3><p class="lead" style="white-space:pre-wrap;font-size:0.9rem">' + escapeHtml(lyrics || "Looking up…") + "</p></div>" : "") +
+        (admin
+          ? '<div class="panel"><h3>Add songs</h3>' +
+            '<input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />' +
+            '<p class="hint">Files, not Photos. Over 4.5 MB — send it in SoftwareTesters.</p>' +
+            "<label>YouTube, radio, Twitch, Kick, Icecast, HLS, game stream</label>" +
+            '<textarea id="src" placeholder="https://youtube.com/watch?v=…  or  http://radio:8000/stream  or  https://twitch.tv/…"></textarea>' +
+            '<button class="btn ghost" id="addurl">Add stream</button></div>' +
+            '<div class="panel"><h3>Up next (' + ((room.queue || []).length) + ")</h3>" + rows(room.queue || [], "queue") + "</div>" +
+            '<div class="panel"><h3>Library</h3>' + rows(room.library || [], "library") + "</div>"
+          : '<div class="panel"><h3>Up next</h3>' + rows(room.queue || [], "listen") + "</div>") +
+        (err ? '<p class="err">' + escapeHtml(err) + "</p>" : '<p class="hint">Join live opens the SoftwareTesters voice chat. Close this page — MT Radio stays on.</p>') +
+        '<p class="made">MT Radio · FutureT3ch × MemeTorrent</p>';
+
+      var liveEl = document.getElementById("live");
+      if (liveEl) liveEl.onclick = openLive;
+      var play = document.getElementById("play");
+      if (play) play.onclick = function () { act("play"); };
+      var skip = document.getElementById("skip");
+      if (skip) skip.onclick = function () { act("skip"); };
+      var ly = document.getElementById("ly");
+      if (ly) ly.onclick = async function () {
         if (showLyrics) { showLyrics = false; paint(); return; }
         showLyrics = true;
         lyrics = "Looking up lyrics…";
@@ -326,8 +334,8 @@
         try {
           const res = await fetch("/api/room", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "lyrics", id: me.id, name: me.name }),
+            headers: authHeaders(),
+            body: JSON.stringify({ type: "lyrics", id: me.id, name: me.name, initData: initData }),
           });
           const data = await res.json();
           lyrics = data.lyrics || "No lyrics found.";
@@ -336,16 +344,17 @@
         }
         paint();
       };
-      const fileEl = document.getElementById("file");
-      bindFile(fileEl);
-      document.querySelectorAll("[data-q]").forEach((btn) => {
-        btn.onclick = () => act("queue", { trackId: btn.getAttribute("data-q") });
+      bindFile(document.getElementById("file"));
+      var add = document.getElementById("addurl");
+      if (add) add.onclick = addUrl;
+      document.querySelectorAll("[data-q]").forEach(function (btn) {
+        btn.onclick = function () { act("queue", { trackId: btn.getAttribute("data-q") }); };
       });
-      document.querySelectorAll("[data-rm]").forEach((btn) => {
-        btn.onclick = () => act("remove", { trackId: btn.getAttribute("data-rm") });
+      document.querySelectorAll("[data-rm]").forEach(function (btn) {
+        btn.onclick = function () { act("remove", { trackId: btn.getAttribute("data-rm") }); };
       });
-      document.querySelectorAll("[data-del]").forEach((btn) => {
-        btn.onclick = () => act("delete", { trackId: btn.getAttribute("data-del") });
+      document.querySelectorAll("[data-del]").forEach(function (btn) {
+        btn.onclick = function () { act("delete", { trackId: btn.getAttribute("data-del") }); };
       });
     }
 
@@ -373,9 +382,9 @@
       };
     }
 
-    audio.addEventListener("ended", function () { if (room.hostId === me.id) act("skip"); });
+    audio.addEventListener("ended", function () { if (room.isAdmin) act("skip"); });
     bindFile(document.getElementById("file-boot"));
-    try { bootRoom(); } catch (e) { err = "Reload, then pick a file below."; }
+    try { bootRoom(); } catch (e) { err = "Reload, then tap Join live."; }
   </script>
 </body>
 </html>

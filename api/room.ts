@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 type Track = {
   id: string;
   title: string;
@@ -21,9 +23,21 @@ type Room = {
   connected: boolean;
 };
 
+const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
+const APP = "https://mt-house-jukebox.vercel.app/";
+const LIVE = "https://t.me/c/2671373361?voicechat";
+const INVITE = "https://t.me/+WgogJ0YgKAQzN2Q9";
+const GROUP = -1002671373361;
+const DJ_KEY = process.env.DJ_KEY || "mt-radio-dj-9f3";
+const STATION = {
+  name: "MT Radio",
+  tagline: "MT ecosystem · made by FutureT3ch and MemeTorrent",
+};
+
 function bag() {
   const g = globalThis as typeof globalThis & {
     __jb?: { room: Room; audio: Map<string, { buf: Buffer; mime: string }> };
+    __adm?: Map<string, { ok: boolean; exp: number }>;
   };
   if (!g.__jb) {
     g.__jb = {
@@ -42,6 +56,7 @@ function bag() {
       audio: new Map(),
     };
   }
+  if (!g.__adm) g.__adm = new Map();
   return g.__jb;
 }
 
@@ -59,6 +74,30 @@ function getRoom(): Room {
   return room;
 }
 
+function publicRoom(isAdmin: boolean) {
+  const room = getRoom();
+  const current =
+    room.current ||
+    ({
+      id: "station",
+      title: STATION.name,
+      artist: STATION.tagline,
+      url: "",
+      addedBy: "MT Radio",
+      duration: 0,
+      kind: "station",
+    } as Track);
+  return {
+    ...room,
+    current,
+    paused: room.current ? room.paused : false,
+    isAdmin,
+    live: LIVE,
+    invite: INVITE,
+    station: STATION,
+  };
+}
+
 function heartbeat(id: string, name: string) {
   const room = getRoom();
   const found = room.listeners.find((l) => l.id === id);
@@ -67,10 +106,6 @@ function heartbeat(id: string, name: string) {
     if (name) found.name = name;
   } else {
     room.listeners.push({ id, name: name || "Listener", seen: Date.now() });
-  }
-  if (!room.hostId || !room.listeners.some((l) => l.id === room.hostId)) {
-    room.hostId = id;
-    room.hostName = name || "Listener";
   }
   return room;
 }
@@ -98,7 +133,7 @@ function play(userId: string, name?: string) {
   room.hostId = userId;
   if (name) room.hostName = name;
   if (!room.current) {
-    const next = room.queue.shift() || room.library[0];
+    const next = room.queue.shift() || room.library.find((t) => t.kind !== "station");
     if (next) startTrack(next);
     return room;
   }
@@ -175,18 +210,18 @@ function getAudio(id: string) {
 }
 
 async function lyricsFor(track: Track | null) {
-  if (!track) return "Nothing is playing.";
+  if (!track || track.kind === "station") return STATION.name + "\n" + STATION.tagline;
   const title = stripFileJunk(track.title);
   const artist = stripFileJunk(track.artist);
   const q = encodeURIComponent([artist, title].filter(Boolean).join(" ").trim() || title);
   try {
-    const r = await fetch("https://lrclib.net/api/search?q=" + q, { headers: { "User-Agent": "MT-Jukebox" } });
-    const arr = (await r.json()) as { plainLyrics?: string; syncedLyrics?: string; trackName?: string }[];
+    const r = await fetch("https://lrclib.net/api/search?q=" + q, { headers: { "User-Agent": "MT-Radio" } });
+    const arr = (await r.json()) as { plainLyrics?: string; syncedLyrics?: string }[];
     const hit = Array.isArray(arr) && arr.find((x) => x.plainLyrics || x.syncedLyrics);
     const text = (hit && (hit.plainLyrics || hit.syncedLyrics)) || "";
     if (text) return stripSync(text);
   } catch {
-    /* try backup */
+    /* backup */
   }
   try {
     const r = await fetch(
@@ -211,9 +246,84 @@ function stripFileJunk(s: string) {
     .trim();
 }
 
-const BOT = process.env.BOT_TOKEN || "8657477411:AAEedpalxENlRBGITjD-ztlXfbB_7hwziik";
-const APP = "https://mt-house-jukebox.vercel.app/";
-const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9?voicechat";
+function parseSource(raw: string): { kind: string; url: string; title: string; artist: string } | null {
+  const text = String(raw || "").trim();
+  const m = text.match(/https?:\/\/[^\s<>"']+/i);
+  const url = m ? m[0] : text;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const host = u.hostname.replace(/^www\./, "").toLowerCase();
+  const path = u.pathname + u.search;
+  if (host === "youtu.be" || host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+    return { kind: "youtube", url, title: "YouTube", artist: "MT Radio" };
+  }
+  if (host === "twitch.tv" || host.endsWith(".twitch.tv")) {
+    return { kind: "twitch", url, title: "Twitch", artist: "Game stream" };
+  }
+  if (host === "kick.com") {
+    return { kind: "kick", url, title: "Kick", artist: "Game stream" };
+  }
+  if (host === "soundcloud.com") {
+    return { kind: "soundcloud", url, title: "SoundCloud", artist: "MT Radio" };
+  }
+  if (host.endsWith("mixcloud.com")) {
+    return { kind: "mixcloud", url, title: "Mixcloud", artist: "MT Radio" };
+  }
+  if (host.endsWith("bandcamp.com")) {
+    return { kind: "stream", url, title: "Bandcamp", artist: "MT Radio" };
+  }
+  if (/\.(m3u8?|pls)(?:$|[?#])/i.test(path) || /icecast|shoutcast|listen/i.test(url) || /:(8000|8443|8080|8008)\b/.test(url)) {
+    return { kind: "radio", url, title: "Radio stream", artist: "MT Radio" };
+  }
+  if (/\.(mp3|aac|ogg|opus|m4a)(?:$|[?#])/i.test(path)) {
+    return { kind: "stream", url, title: "Audio stream", artist: "MT Radio" };
+  }
+  return { kind: "stream", url, title: host, artist: "MT Radio" };
+}
+
+function userFromInit(initData: string): { id: string; name: string } | null {
+  if (!initData) return null;
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash") || "";
+  params.delete("hash");
+  const dataCheck = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => k + "=" + v)
+    .join("\n");
+  const secret = crypto.createHmac("sha256", "WebAppData").update(BOT).digest();
+  const check = crypto.createHmac("sha256", secret).update(dataCheck).digest("hex");
+  if (check !== hash) return null;
+  try {
+    const user = JSON.parse(params.get("user") || "null");
+    if (!user?.id) return null;
+    return {
+      id: String(user.id),
+      name: [user.first_name, user.last_name].filter(Boolean).join(" ").trim() || user.username || "Listener",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function isAdmin(userId: string): Promise<boolean> {
+  const n = Number(userId);
+  if (!n) return false;
+  const g = globalThis as any;
+  if (!g.__adm) g.__adm = new Map();
+  const map: Map<string, { ok: boolean; exp: number }> = g.__adm;
+  const hit = map.get(userId);
+  if (hit && hit.exp > Date.now()) return hit.ok;
+  const r = await tg("getChatMember", { chat_id: GROUP, user_id: n });
+  const st = r?.result?.status;
+  const ok = st === "creator" || st === "administrator";
+  map.set(userId, { ok, exp: Date.now() + 45000 });
+  return ok;
+}
 
 export const config = { api: { bodyParser: false } };
 
@@ -264,11 +374,18 @@ function tgName(from: any) {
 function nowText() {
   const room = getRoom();
   const cur = room.current;
-  if (!cur) return "Nothing on. Drop an mp3 here or open the jukebox.";
-  return (room.paused ? "Paused: " : "Playing: ") + cur.title + (cur.artist ? " — " + cur.artist : "");
+  if (!cur) return STATION.name + " is on air.\n" + STATION.tagline + "\nTap Join live — voice chat at the top of SoftwareTesters.";
+  return (room.paused ? "Paused: " : "Now on MT Radio: ") + cur.title + (cur.artist ? " — " + cur.artist : "");
 }
 
-function menuKeyboard() {
+function liveKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "Join MT Radio live", url: LIVE }]],
+  };
+}
+
+function menuKeyboard(admin: boolean) {
+  if (!admin) return liveKeyboard();
   return {
     inline_keyboard: [
       [
@@ -280,8 +397,8 @@ function menuKeyboard() {
         { text: "Queue", callback_data: "queue" },
         { text: "Lyrics", callback_data: "lyrics" },
       ],
-      [{ text: "Join live stream", url: LIVE }],
-      [{ text: "Open jukebox", url: APP }],
+      [{ text: "Join MT Radio live", url: LIVE }],
+      [{ text: "Open DJ desk", url: APP }],
     ],
   };
 }
@@ -296,11 +413,11 @@ function queueKeyboard() {
   return { inline_keyboard: rows };
 }
 
-async function sendMenu(chatId: number, extra?: string) {
+async function sendMenu(chatId: number, extra?: string, admin = true) {
   await tg("sendMessage", {
     chat_id: chatId,
     text: (extra ? extra + "\n\n" : "") + nowText(),
-    reply_markup: menuKeyboard(),
+    reply_markup: menuKeyboard(admin),
   });
 }
 
@@ -311,10 +428,14 @@ async function handleTelegram(update: any) {
     const id = String(from?.id || "tg");
     const name = tgName(from);
     const data = String(cb.data || "");
+    const admin = await isAdmin(id);
     heartbeat(id, name);
     let text = nowText();
-    let markup: any = menuKeyboard();
-    if (data === "play") {
+    let markup: any = menuKeyboard(admin);
+    if (!admin && ["play", "pause", "skip"].includes(data)) {
+      text = "Only group admins can DJ.\n\n" + nowText();
+      markup = liveKeyboard();
+    } else if (data === "play") {
       play(id, name);
       text = nowText();
     } else if (data === "pause") {
@@ -328,24 +449,28 @@ async function handleTelegram(update: any) {
       text = room.queue.length
         ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
         : "Queue is empty.";
-      markup = queueKeyboard();
+      markup = admin ? queueKeyboard() : liveKeyboard();
     } else if (data === "lyrics") {
       text = (await lyricsFor(getRoom().current)).slice(0, 3500);
       markup = { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] };
     } else if (data === "menu") {
       text = nowText();
     } else if (data.startsWith("rm:")) {
-      removeFromQueue(data.slice(3));
+      if (admin) removeFromQueue(data.slice(3));
       const room = getRoom();
       text = room.queue.length
-        ? "Removed. Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title).join("\n")
+        ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title).join("\n")
         : "Queue is empty.";
-      markup = queueKeyboard();
+      markup = admin ? queueKeyboard() : liveKeyboard();
     } else if (data.startsWith("del:")) {
-      deleteTrack(data.slice(4));
-      text = "Deleted.\n" + nowText();
+      if (admin) deleteTrack(data.slice(4));
+      text = nowText();
     }
-    await tg("answerCallbackQuery", { callback_query_id: cb.id });
+    await tg("answerCallbackQuery", {
+      callback_query_id: cb.id,
+      text: admin || data === "queue" || data === "lyrics" || data === "menu" ? undefined : "Admins only",
+      show_alert: !admin && ["play", "pause", "skip"].includes(data),
+    });
     try {
       await tg("editMessageText", {
         chat_id: cb.message.chat.id,
@@ -366,11 +491,21 @@ async function handleTelegram(update: any) {
   const id = String(from?.id || "tg");
   const name = tgName(from);
   heartbeat(id, name);
+  const admin = await isAdmin(id);
 
   const audio = msg.audio;
   const doc = msg.document;
   const isMp3 = Boolean(audio) || (doc && /audio|mpeg|mp3|m4a|wav|aac|ogg|flac/i.test(`${doc.mime_type || ""} ${doc.file_name || ""}`));
   if (isMp3) {
+    if (!admin) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "Only group admins can add tracks.\nTap Join live to listen to MT Radio.",
+        reply_markup: liveKeyboard(),
+        reply_to_message_id: msg.message_id,
+      });
+      return;
+    }
     const fileId = audio?.file_id || doc?.file_id;
     if (!fileId) return;
     const title = audio?.title || (doc?.file_name || "Untitled").replace(/\.[^.]+$/, "");
@@ -388,21 +523,47 @@ async function handleTelegram(update: any) {
     );
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Added: " + title + " — " + name,
-      reply_markup: menuKeyboard(),
+      text: "Queued on MT Radio: " + title,
+      reply_markup: menuKeyboard(true),
     });
     return;
   }
 
   const text = String(msg.text || "");
+  const src = parseSource(text);
   const cmd = text.replace(/@\w+/, "").trim().toLowerCase();
+  if (src && !cmd.startsWith("/") && admin) {
+    const title = src.title === src.kind || src.title === "YouTube" || src.title === "Twitch" ? src.title + " stream" : src.title;
+    addTrack(
+      {
+        id: newId(),
+        title,
+        artist: src.artist,
+        url: src.url,
+        addedBy: name,
+        duration: 0,
+        kind: src.kind,
+      },
+      !getRoom().current,
+    );
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Queued on MT Radio: " + title,
+      reply_markup: menuKeyboard(true),
+    });
+    return;
+  }
+
   if (cmd === "/play" || cmd === "play" || cmd === "▶️ play") {
+    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
     play(id, name);
     await sendMenu(chatId);
   } else if (cmd === "/pause" || cmd === "pause" || cmd === "⏸ pause") {
+    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
     pause(id, name);
     await sendMenu(chatId);
   } else if (cmd === "/skip" || cmd === "skip" || cmd === "⏭ skip") {
+    if (!admin) return void sendMenu(chatId, "Only group admins can DJ.", false);
     skip(id, name);
     await sendMenu(chatId);
   } else if (cmd === "/queue" || cmd === "queue" || cmd === "📋 queue") {
@@ -410,7 +571,7 @@ async function handleTelegram(update: any) {
     const q = room.queue.length
       ? "Up next:\n" + room.queue.map((t, i) => (i + 1) + ". " + t.title + (t.addedBy ? " · " + t.addedBy : "")).join("\n")
       : "Queue is empty.";
-    await tg("sendMessage", { chat_id: chatId, text: q + "\n\n" + nowText(), reply_markup: queueKeyboard() });
+    await tg("sendMessage", { chat_id: chatId, text: q + "\n\n" + nowText(), reply_markup: admin ? queueKeyboard() : liveKeyboard() });
   } else if (cmd === "/lyrics" || cmd === "lyrics" || cmd === "🎤 lyrics") {
     const lyrics = (await lyricsFor(getRoom().current)).slice(0, 3500);
     await tg("sendMessage", {
@@ -418,22 +579,25 @@ async function handleTelegram(update: any) {
       text: lyrics,
       reply_markup: { inline_keyboard: [[{ text: "« Menu", callback_data: "menu" }]] },
     });
-  } else if (cmd === "/live" || cmd === "live" || /^\/live(@\w+)?$/.test(cmd)) {
+  } else if (cmd === "/live" || cmd === "live" || /^\/live(@\w+)?$/.test(cmd) || cmd === "/now") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "Tap Join live stream — that's the sound. Close the jukebox, the stream keeps going.",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Join live stream", url: LIVE }],
-          [{ text: "Open jukebox", url: APP }],
-        ],
-      },
+      text: nowText() + "\n\nTap Join MT Radio live — that opens the voice chat at the top of this group.",
+      reply_markup: liveKeyboard(),
     });
   } else if (/^\/(start|jukebox|menu)(@\w+)?$/.test(cmd) || cmd === "menu") {
+    if (!admin) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "MT Radio is on air.\n" + STATION.tagline + "\n\nEveryone can listen. Only admins can add music.",
+        reply_markup: liveKeyboard(),
+      });
+      return;
+    }
     await tg("sendMessage", {
       chat_id: chatId,
-      text: nowText() + "\nDetected: " + name,
-      reply_markup: menuKeyboard(),
+      text: nowText() + "\nDJ: " + name,
+      reply_markup: menuKeyboard(true),
     });
   }
 }
@@ -444,24 +608,47 @@ async function setupBot() {
   g.__jbBotReady = true;
   await tg("setMyCommands", {
     commands: [
-      { command: "menu", description: "Play, pause, skip, queue, lyrics" },
+      { command: "live", description: "Join MT Radio live" },
+      { command: "now", description: "What's playing" },
+    ],
+  });
+  await tg("setMyCommands", {
+    commands: [
+      { command: "live", description: "Join MT Radio live" },
+      { command: "now", description: "What's playing" },
+      { command: "menu", description: "DJ desk" },
       { command: "play", description: "Play / resume" },
       { command: "pause", description: "Pause" },
       { command: "skip", description: "Next track" },
-      { command: "queue", description: "Show and remove queued songs" },
-      { command: "lyrics", description: "Lyrics for what's playing" },
-      { command: "live", description: "Join the live stream" },
-      { command: "jukebox", description: "Open the jukebox" },
+      { command: "queue", description: "Queue" },
+      { command: "lyrics", description: "Lyrics" },
+      { command: "jukebox", description: "Open DJ desk" },
     ],
+    scope: { type: "all_chat_administrators" },
   });
   await tg("setChatMenuButton", {
-    menu_button: { type: "web_app", text: "Jukebox", web_app: { url: APP } },
+    menu_button: { type: "web_app", text: "MT Radio", web_app: { url: APP } },
   });
+}
+
+function initFromReq(req: any, body?: any) {
+  return String(req.headers?.["x-telegram-init-data"] || req.headers?.["X-Telegram-Init-Data"] || body?.initData || "");
+}
+
+async function adminFromReq(req: any, body?: any, fallbackId?: string) {
+  const key = String(req.query?.key || body?.key || "");
+  if (key && key === DJ_KEY) return { admin: true, id: "dj", name: "DJ" };
+  const verified = userFromInit(initFromReq(req, body));
+  if (verified) {
+    return { admin: await isAdmin(verified.id), id: verified.id, name: verified.name };
+  }
+  return { admin: false, id: String(fallbackId || "anon"), name: "Listener" };
 }
 
 export default async function handler(req: any, res: any) {
   try {
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data");
     res.setHeader("Cache-Control", "no-store");
     if (req.method === "OPTIONS") return res.status(200).end("ok");
     void setupBot();
@@ -492,9 +679,9 @@ export default async function handler(req: any, res: any) {
     }
 
     if (req.method === "GET") {
-      const id = String(req.query?.id || "anon");
-      const name = String(req.query?.name || "Listener");
-      return res.status(200).json(heartbeat(id, name));
+      const who = await adminFromReq(req, {}, String(req.query?.id || "anon"));
+      heartbeat(who.id, String(req.query?.name || who.name));
+      return res.status(200).json(publicRoom(who.admin));
     }
 
     const chunks: Buffer[] = [];
@@ -516,19 +703,22 @@ export default async function handler(req: any, res: any) {
 
     const titleQ = url.searchParams.get("title") || req.query?.title;
     if (titleQ) {
+      const who = await adminFromReq(req, {}, String(url.searchParams.get("id") || "anon"));
+      if (!who.admin) {
+        return res.status(403).json({ error: "Only group admins can add tracks. Join live to listen.", live: LIVE });
+      }
       const audioBuf = extractAudio(req, raw);
       if (audioBuf.length < 200) {
         return res.status(400).json({ error: "That file did not arrive — pick it from Files, not Photos" });
       }
-      if (audioBuf.length > 4_500_000) {
+      if (audioBuf.length > 4500000) {
         return res.status(400).json({ error: "Over 4.5 MB — drop the mp3 in SoftwareTesters" });
       }
       const mimeHead = String(req.headers?.["content-type"] || "audio/mpeg").split(";")[0] || "audio/mpeg";
       const mime = mimeHead.includes("multipart") ? "audio/mpeg" : mimeHead;
       const id = saveAudio(audioBuf, mime);
-      const name = decodeURIComponent(String(url.searchParams.get("name") || req.query?.name || "Someone"));
-      const uid = String(url.searchParams.get("id") || req.query?.id || "anon");
-      heartbeat(uid, name);
+      const name = decodeURIComponent(String(url.searchParams.get("name") || who.name || "Someone"));
+      heartbeat(who.id, name);
       const track = {
         id,
         title: decodeURIComponent(String(titleQ)),
@@ -539,7 +729,7 @@ export default async function handler(req: any, res: any) {
         kind: "mp3",
       };
       addTrack(track, !getRoom().current);
-      return res.status(200).json(getRoom());
+      return res.status(200).json(publicRoom(true));
     }
 
     let body: any = {};
@@ -550,21 +740,42 @@ export default async function handler(req: any, res: any) {
         body = {};
       }
     }
-    const id = String(body.id || "anon");
-    const name = String(body.name || "Listener");
+    const who = await adminFromReq(req, body, String(body.id || "anon"));
+    const id = who.id;
+    const name = who.name || String(body.name || "Listener");
     heartbeat(id, name);
     const type = String(body.type || "");
+    if (type === "lyrics") {
+      const text = await lyricsFor(getRoom().current);
+      return res.status(200).json({ ...publicRoom(who.admin), lyrics: text });
+    }
+    if (!who.admin && ["play", "pause", "skip", "queue", "remove", "delete", "addUrl"].includes(type)) {
+      return res.status(403).json({ error: "Only group admins can DJ. Join live to listen.", live: LIVE, ...publicRoom(false) });
+    }
     if (type === "play") playPause(id, name);
     else if (type === "pause") pause(id, name);
     else if (type === "skip") skip(id, name);
     else if (type === "queue") queueTrack(String(body.trackId || ""), id, name);
     else if (type === "remove") removeFromQueue(String(body.trackId || ""));
     else if (type === "delete") deleteTrack(String(body.trackId || ""));
-    else if (type === "lyrics") {
-      const text = await lyricsFor(getRoom().current);
-      return res.status(200).json({ ...getRoom(), lyrics: text });
+    else if (type === "addUrl") {
+      const src = parseSource(String(body.url || ""));
+      if (!src) return res.status(400).json({ error: "Paste a YouTube, Twitch, radio, or stream URL." });
+      const title = String(body.title || "").trim() || src.title;
+      addTrack(
+        {
+          id: newId(),
+          title,
+          artist: src.artist,
+          url: src.url,
+          addedBy: name,
+          duration: 0,
+          kind: src.kind,
+        },
+        !getRoom().current,
+      );
     }
-    return res.status(200).json(getRoom());
+    return res.status(200).json(publicRoom(who.admin));
   } catch (e: any) {
     return res.status(500).json({ error: String(e && e.message ? e.message : e) });
   }
