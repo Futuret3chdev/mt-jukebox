@@ -120,7 +120,9 @@
       return Math.max(0, (Date.now() - room.startedAt) / 1000);
     }
     function liveHref() {
-      return room.live || LIVE;
+      var href = (room && room.live) || LIVE;
+      if (!href || href.indexOf("/c/") >= 0 || href.indexOf("telegram.org") >= 0) return LIVE;
+      return href;
     }
     function openLive(e) {
       var href = liveHref();
