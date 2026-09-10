@@ -157,11 +157,30 @@
     function liveHref() {
       return LIVE;
     }
-    function openLive() {
+    function openLive(e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       wantPlay = true;
       syncAudio();
       chrome();
       if (room.isAdmin) act("golive");
+      var href = LIVE;
+      try {
+        if (tg && tg.openTelegramLink) {
+          tg.openTelegramLink(href);
+          return false;
+        }
+      } catch (err) {}
+      try {
+        if (window.TelegramWebviewProxy && window.TelegramWebviewProxy.postEvent) {
+          window.TelegramWebviewProxy.postEvent("web_app_open_tg_link", JSON.stringify({ path_full: "/+WgogJ0YgKAQzN2Q9" }));
+          return false;
+        }
+      } catch (err2) {}
+      location.href = href;
+      return false;
     }
     function abs(url) {
       try { return new URL(url, location.origin).href; } catch (e) { return url; }
