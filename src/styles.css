@@ -63,6 +63,7 @@ input, textarea {
   object-fit: contain;
 }
 .brand .kicker { margin: 0; }
+.kicker {
   font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
