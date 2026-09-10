@@ -122,7 +122,7 @@ export function App() {
     return (
       <div className="app">
         <div className="brand">
-          <img src="/logo.png" alt="MemeTorrent" />
+          <img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" />
           <p className="kicker">MemeTorrent</p>
         </div>
         <h1>Jukebox</h1>
@@ -158,7 +158,7 @@ export function App() {
       <h1>Jukebox</h1>
       <div className="disc-wrap">
         <div className={room?.current && !room.paused ? "disc spin" : "disc"}>
-          <img src="/logo.png" alt="" />
+          <img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="" />
         </div>
       </div>
       <div className="now">
