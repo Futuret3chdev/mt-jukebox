@@ -18,7 +18,7 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: "IBM Plex Sans", sans-serif; }
     .app { min-height: 100dvh; padding: 24px 16px calc(32px + env(safe-area-inset-bottom)); max-width: 28rem; margin: 0 auto; }
-    audio#audio { width: 100%; margin: 8px 0 4px; }
+    audio#audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
     .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
     .brand img { width: 40px; height: 40px; object-fit: contain; }
     .kicker { font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 500; margin: 0; }
@@ -87,7 +87,6 @@
     <div class="transport">
       <button type="button" class="btn primary" id="play">Play</button>
     </div>
-    <audio id="audio" controls playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
     <div class="row-btns">
       <button type="button" class="btn ghost" id="skip">Skip</button>
       <button type="button" class="btn ghost" id="again">Again</button>
@@ -105,6 +104,7 @@
     </div>
     <div id="desk"></div>
   </div>
+  <audio id="audio" playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
   <script>
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
@@ -285,18 +285,9 @@
       try {
         audio.muted = false;
         audio.volume = 1;
+        if (audio.src.indexOf("hold.mp3") < 0) audio.src = "/hold.mp3";
       } catch (e) {}
-      if (!audio.getAttribute("src") && audio.src.indexOf("hold.mp3") < 0) {
-        audio.src = "/hold.mp3";
-      }
-      audio.setAttribute("data-src", "/hold.mp3");
-      var p = audio.play();
-      if (p && p.catch) {
-        p.catch(function () {
-          err = "Tap the play triangle on the bar under Play.";
-          chrome();
-        });
-      }
+      audio.play().catch(function () {});
     }
     function syncAudio() {
       var feed = document.getElementById("feed");
