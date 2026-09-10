@@ -854,6 +854,36 @@ export default async function handler(req: any, res: any) {
     void setupBot();
 
     const url = new URL(req.url || "/", "http://x");
+    const src = url.searchParams.get("src") || req.query?.src;
+    if (src) {
+      let parsed: URL;
+      try {
+        parsed = new URL(String(src));
+      } catch {
+        return res.status(400).json({ error: "bad src" });
+      }
+      const host = parsed.hostname.toLowerCase();
+      const ok =
+        parsed.protocol === "https:" &&
+        (host.endsWith("tmpfiles.org") ||
+          host.endsWith("catbox.moe") ||
+          host.endsWith("telegram.org") ||
+          host.endsWith("t.me") ||
+          host.endsWith("vercel.app") ||
+          host.endsWith("futuret3ch.com.au"));
+      if (!ok) return res.status(400).json({ error: "src not allowed" });
+      const remote = await fetch(parsed.toString(), {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "audio/*,*/*" },
+        redirect: "follow",
+      });
+      if (!remote.ok) return res.status(404).json({ error: "track host blocked" });
+      const mime = String(remote.headers.get("content-type") || "audio/mpeg").split(";")[0] || "audio/mpeg";
+      const buf = Buffer.from(await remote.arrayBuffer());
+      res.setHeader("Content-Type", mime.startsWith("audio") || mime === "application/octet-stream" ? "audio/mpeg" : mime);
+      res.setHeader("Cache-Control", "public, max-age=120");
+      return res.status(200).end(buf);
+    }
+
     const audioId = url.searchParams.get("audio") || req.query?.audio;
     if (audioId) {
       const file = getAudio(String(audioId));

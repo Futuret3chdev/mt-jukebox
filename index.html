@@ -254,6 +254,16 @@
       return m ? m[1] : "";
     }
     function mediaHref() {
+      var cur = room.current;
+      if (!cur || cur.kind === "station") return "/hold.mp3";
+      if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
+      var u = cur.playUrl || cur.url || "";
+      if (!u) return "/hold.mp3";
+      if (u.indexOf("/api/") === 0) return u;
+      if (u.indexOf("http") === 0) {
+        if (cur.kind === "radio" || cur.kind === "stream") return u;
+        return "/api/room?src=" + encodeURIComponent(u);
+      }
       return "/hold.mp3";
     }
     function isOnAir() {
@@ -282,10 +292,14 @@
           feed.play().catch(function () {});
         } catch (e0) {}
       }
+      var href = mediaHref() || "/hold.mp3";
       try {
         audio.muted = false;
         audio.volume = 1;
-        if (audio.src.indexOf("hold.mp3") < 0) audio.src = "/hold.mp3";
+        if (audio.getAttribute("data-src") !== href) {
+          audio.src = href;
+          audio.setAttribute("data-src", href);
+        }
       } catch (e) {}
       audio.play().catch(function () {});
     }
@@ -384,18 +398,36 @@
       holdPaint = Date.now() + 20000;
       chrome();
       try {
-        const url = await hostFile(file);
-        if (!url) {
-          err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
-          busy = "";
-          chrome();
-          return;
+        var posted = false;
+        if (file.size < 4200000) {
+          try {
+            var up = await fetch("/api/room?title=" + encodeURIComponent(file.name.replace(/\.[^.]+$/, "")) + "&name=" + encodeURIComponent(me.name) + "&id=" + encodeURIComponent(me.id), {
+              method: "POST",
+              headers: { "Content-Type": file.type || "audio/mpeg", "X-Telegram-Init-Data": initData },
+              body: file
+            });
+            if (up.ok) {
+              var data = await up.json();
+              Object.assign(room, data);
+              posted = true;
+            }
+          } catch (e0) {}
         }
-        var idle = !room.current || room.current.kind === "station";
-        await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, ""), playNow: idle });
-        wantPlay = wantPlay || idle;
+        if (!posted) {
+          const url = await hostFile(file);
+          if (!url) {
+            err = "Could not send " + file.name + ". Try again, or send the file to @Mtradiobot.";
+            busy = "";
+            chrome();
+            return;
+          }
+          var idle = !room.current || room.current.kind === "station";
+          await act("addUrl", { url: url, title: file.name.replace(/\.[^.]+$/, ""), playNow: idle });
+        }
+        wantPlay = true;
         busy = "";
-        err = "Added " + file.name + (idle ? "" : " — queued");
+        err = "Added " + file.name;
+        startSound();
         try {
           var lib = (room.library || []).slice();
           localStorage.setItem("jb-lib", JSON.stringify(lib.slice(0, 200)));
