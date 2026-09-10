@@ -254,11 +254,12 @@
     }
     function mediaHref() {
       var cur = room.current;
-      if (!cur) return "/hold.mp3";
-      if (cur.playUrl) return cur.playUrl;
-      if (cur.kind === "station") return "/hold.mp3";
+      if (!cur || cur.kind === "station") return "/hold.mp3";
+      if (cur.playUrl && String(cur.playUrl).indexOf("tmpfiles.org") < 0) return cur.playUrl;
       if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
-      return abs(cur.url || "") || "/hold.mp3";
+      var u = abs(cur.url || "");
+      if (!u || u.indexOf("tmpfiles.org") >= 0 || u.indexOf("catbox") >= 0) return "/hold.mp3";
+      return u;
     }
     function isOnAir() {
       var cur = room.current;
@@ -299,24 +300,37 @@
       audio.play().catch(function () {});
       syncVideo();
     }
+    audio.addEventListener("error", function () {
+      if (audio.getAttribute("data-src") === "/hold.mp3") return;
+      try {
+        audio.src = "/hold.mp3";
+        audio.setAttribute("data-src", "/hold.mp3");
+        if (wantPlay) audio.play().catch(function () {});
+      } catch (e) {}
+    });
     function hitPlay() {
       var feed = document.getElementById("feed");
       if (feed) feed.play().catch(function () {});
       wantPlay = !wantPlay;
       if (room.isAdmin) act(wantPlay ? "play" : "pause");
       if (wantPlay) {
-        var href = mediaHref();
-        if (href) {
+        try {
+          audio.src = mediaHref() || "/hold.mp3";
+          audio.setAttribute("data-src", audio.src);
+        } catch (e) {}
+        audio.play().catch(function () {
           try {
-            if (audio.getAttribute("data-src") !== href) {
-              audio.src = href;
-              audio.setAttribute("data-src", href);
-            }
-          } catch (e) {}
-          audio.play().catch(function () {});
-        }
+            audio.src = "/hold.mp3";
+            audio.setAttribute("data-src", "/hold.mp3");
+            audio.play().catch(function () {});
+          } catch (e2) {}
+        });
         syncVideo();
       } else {
+        try { audio.pause(); } catch (e) {}
+      }
+      chrome();
+    }
         try { audio.pause(); } catch (e) {}
       }
       chrome();
