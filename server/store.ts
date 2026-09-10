@@ -92,9 +92,35 @@ function hydrate() {
 
 export function getRoom(): Room {
   hydrate();
+  advanceIfEnded();
   const now = Date.now();
   g.__jbRoom!.listeners = g.__jbRoom!.listeners.filter((l) => now - l.seen < 20000);
   return g.__jbRoom!;
+}
+
+function advanceIfEnded() {
+  const room = g.__jbRoom;
+  if (!room?.current || room.paused || !room.startedAt) return;
+  const dur = room.current.duration;
+  if (!dur || dur < 1) return;
+  const pos = (Date.now() - room.startedAt) / 1000;
+  if (pos < dur + 0.4) return;
+  const next = room.queue.shift();
+  if (next) startTrack(next);
+  else {
+    room.current = null;
+    room.startedAt = null;
+    room.paused = true;
+    room.pausePos = 0;
+    persist();
+  }
+}
+
+export function setDuration(id: string, seconds: number) {
+  const room = getRoom();
+  if (room.current?.id === id && seconds > 0) room.current.duration = seconds;
+  persist();
+  return room;
 }
 
 export function heartbeat(id: string, name: string) {
@@ -112,7 +138,7 @@ export function heartbeat(id: string, name: string) {
 
 export function addTrack(track: Track, playNow: boolean) {
   const room = getRoom();
-  room.library = [track, ...room.library.filter((t) => t.id !== track.id)].slice(0, 40);
+  room.library = [track, ...room.library.filter((t) => t.id !== track.id)].slice(0, 200);
   if (!room.current || playNow) {
     startTrack(track);
   } else {
@@ -195,8 +221,8 @@ export function botConfig() {
   hydrate();
   return {
     token: g.__jbConfig?.token || process.env.BOT_TOKEN || "",
-    chatId: g.__jbConfig?.chatId || process.env.CHAT_ID || "",
-    appUrl: g.__jbConfig?.appUrl || process.env.APP_URL || "",
+    chatId: g.__jbConfig?.chatId || process.env.CHAT_ID || "-1002671373361",
+    appUrl: g.__jbConfig?.appUrl || process.env.APP_URL || "https://mt-house-jukebox.vercel.app",
   };
 }
 

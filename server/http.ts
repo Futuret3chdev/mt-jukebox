@@ -10,6 +10,7 @@ import {
   playPause,
   saveAudio,
   setBotConfig,
+  setDuration,
   skip,
 } from "./store";
 import { announceNowPlaying, connectBot, handleUpdate } from "./telegram";
@@ -49,6 +50,11 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
         id?: string;
         name?: string;
         trackId?: string;
+        duration?: number;
+        title?: string;
+        artist?: string;
+        url?: string;
+        spotifyUri?: string;
       };
       const id = body.id || "anon";
       const name = body.name || "Listener";
@@ -56,10 +62,30 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       claimHost(id, name);
       if (body.type === "play") return send(res, 200, playPause(id));
       if (body.type === "skip") return send(res, 200, skip(id));
+      if (body.type === "duration" && body.trackId && body.duration) {
+        return send(res, 200, setDuration(body.trackId, body.duration));
+      }
       if (body.type === "queue") {
         const room = getRoom();
         const track = room.library.find((t) => t.id === body.trackId);
         if (track) addTrack({ ...track, addedBy: name, id: newId() }, !room.current);
+        return send(res, 200, getRoom());
+      }
+      if (body.type === "spotify" && body.spotifyUri && body.title) {
+        const room = getRoom();
+        addTrack(
+          {
+            id: newId(),
+            title: body.title,
+            artist: body.artist || "Spotify",
+            url: body.spotifyUri,
+            addedBy: name,
+            duration: body.duration || 0,
+            kind: "spotify",
+            spotifyUri: body.spotifyUri,
+          },
+          !room.current,
+        );
         return send(res, 200, getRoom());
       }
       return send(res, 400, { error: "Unknown action" });
@@ -71,20 +97,48 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse) {
       const name = decodeURIComponent(url.searchParams.get("name") || "Someone");
       const idName = url.searchParams.get("id") || "anon";
       if (buf.length < 1000) return send(res, 400, { error: "That file is empty" });
-      if (buf.length > 8_000_000) return send(res, 400, { error: "Keep it under 8 MB" });
+      if (buf.length > 4_500_000) {
+        return send(res, 400, { error: "Over 4.5 MB — drop the mp3 in SoftwareTesters instead, the bot will queue it" });
+      }
       const audioId = saveAudio(title, buf, "audio/mpeg");
+      const dur = Number(url.searchParams.get("duration") || "0");
       const track = {
         id: audioId,
         title,
         artist: name,
         url: `/api/audio/${audioId}`,
         addedBy: name,
-        duration: 0,
+        duration: Number.isFinite(dur) ? dur : 0,
+        kind: "mp3" as const,
       };
       heartbeat(idName, name);
-      const room = addTrack(track, true);
+      const playing = Boolean(getRoom().current);
+      const room = addTrack(track, !playing);
       void announceNowPlaying(title, name);
       return send(res, 200, room);
+    }
+
+    if (req.method === "GET" && path.startsWith("/api/audio/tg/")) {
+      const fileId = path.slice("/api/audio/tg/".length);
+      const { token } = botConfig();
+      if (!token) return send(res, 404, { error: "Bot not connected" });
+      const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_id: fileId }),
+      });
+      const fileJson = (await fileRes.json()) as { ok: boolean; result?: { file_path?: string } };
+      const filePath = fileJson.result?.file_path;
+      if (!filePath) return send(res, 404, { error: "Telegram file expired — drop the mp3 again" });
+      const bin = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+      const buf = Buffer.from(await bin.arrayBuffer());
+      res.writeHead(200, {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "no-store",
+        "Content-Length": String(buf.length),
+      });
+      res.end(buf);
+      return;
     }
 
     if (req.method === "GET" && path.startsWith("/api/audio/")) {

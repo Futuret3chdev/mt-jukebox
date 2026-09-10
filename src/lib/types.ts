@@ -5,6 +5,8 @@ export type Track = {
   url: string;
   addedBy: string;
   duration: number;
+  kind?: "mp3" | "spotify";
+  spotifyUri?: string;
 };
 
 export type Listener = {

@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bootTelegram, identity, setLocalName } from "./lib/telegram";
-import type { Room } from "./lib/types";
+import {
+  finishSpotifyLogin,
+  getSpotifyClientId,
+  searchTracks,
+  setSpotifyClientId,
+  spotifyToken,
+  startSpotifyLogin,
+} from "./lib/spotify";
+import type { Room, Track } from "./lib/types";
+
+const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
 
 function fmt(secs: number) {
   if (!Number.isFinite(secs) || secs < 0) return "0:00";
@@ -20,24 +30,26 @@ export function App() {
   const me = useMemo(() => identity(), []);
   const [room, setRoom] = useState<Room | null>(null);
   const [joined, setJoined] = useState(false);
-  const [tab, setTab] = useState<"queue" | "library" | "connect">("library");
+  const [tab, setTab] = useState<"queue" | "library" | "spotify">("library");
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
-  const [token, setToken] = useState("");
-  const [chatId, setChatId] = useState("");
   const [pos, setPos] = useState(0);
+  const [spId, setSpId] = useState(() => getSpotifyClientId());
+  const [spQuery, setSpQuery] = useState("");
+  const [spHits, setSpHits] = useState<{ id: string; name: string; uri: string; duration_ms: number; artists: { name: string }[] }[]>([]);
+  const [spOn, setSpOn] = useState(() => Boolean(spotifyToken()));
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const lastId = useRef("");
 
   async function refresh() {
     const q = new URLSearchParams({ id: me.id, name: me.name });
     const res = await fetch(`/api/room?${q}`);
     if (!res.ok) return;
-    const next = (await res.json()) as Room;
-    setRoom(next);
+    setRoom((await res.json()) as Room);
   }
 
-  async function action(type: string, extra: Record<string, string> = {}) {
+  async function action(type: string, extra: Record<string, string | number> = {}) {
     const res = await fetch("/api/action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,6 +60,9 @@ export function App() {
 
   useEffect(() => {
     bootTelegram();
+    void finishSpotifyLogin().then((okLogin) => {
+      if (okLogin) setSpOn(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -65,10 +80,16 @@ export function App() {
 
   useEffect(() => {
     const el = audioRef.current;
-    if (!el || !joined || !room?.current) return;
-    if (el.src !== new URL(room.current.url, window.location.origin).href) {
-      el.src = room.current.url;
+    if (!el || !joined || !room?.current) {
+      el?.pause();
+      return;
     }
+    if (room.current.kind === "spotify") {
+      el.pause();
+      return;
+    }
+    const abs = new URL(room.current.url, window.location.origin).href;
+    if (el.src !== abs) el.src = room.current.url;
     const want = positionOf(room);
     if (Math.abs(el.currentTime - want) > 0.8) el.currentTime = want;
     if (room.paused) void el.pause();
@@ -77,11 +98,8 @@ export function App() {
 
   async function onUpload(file: File) {
     setError("");
-    const q = new URLSearchParams({
-      title: file.name.replace(/\.[^.]+$/, ""),
-      name: me.name,
-      id: me.id,
-    });
+    const title = file.name.replace(/\.[^.]+$/, "");
+    const q = new URLSearchParams({ title, name: me.name, id: me.id });
     const res = await fetch(`/api/upload?${q}`, { method: "POST", body: file });
     const data = await res.json();
     if (!res.ok) {
@@ -90,44 +108,34 @@ export function App() {
     }
     setRoom(data);
     setTab("queue");
+    setOk(`Added ${title}`);
   }
 
-  async function onConnect(e: React.FormEvent) {
+  async function onSearch(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setOk("");
-    const res = await fetch("/api/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        chatId,
-        appUrl: window.location.origin,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || "Could not reach that bot");
-      return;
+    try {
+      setSpHits(await searchTracks(spQuery));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Spotify search failed");
     }
-    setOk("Posted to the group. Menu button is Jukebox.");
-    void refresh();
   }
 
-  const duration = room?.current?.duration || audioRef.current?.duration || 16;
+  const duration = room?.current?.duration || audioRef.current?.duration || 0;
   const pct = duration > 0 ? Math.min(100, (pos / duration) * 100) : 0;
   const isHost = room?.hostId === me.id || !room?.hostId;
+  const spotifyNow = room?.current?.kind === "spotify";
 
   if (!joined) {
     return (
       <div className="app">
         <div className="brand">
-          <img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" />
+          <img src={LOGO} alt="MemeTorrent" />
           <p className="kicker">MemeTorrent</p>
         </div>
         <h1>Jukebox</h1>
         <p style={{ color: "var(--fg-muted)" }}>
-          One room. One queue. Everyone in the group hears the same track.
+          One room. One queue. Everyone hears the same mp3 at the same time.
         </p>
         <div className="join-card" style={{ marginTop: 32, padding: 0, background: "none" }}>
           <label htmlFor="name">Your name</label>
@@ -152,22 +160,25 @@ export function App() {
   return (
     <div className="app">
       <div className="brand">
-        <img src="/logo.png" alt="MemeTorrent" />
+        <img src={LOGO} alt="MemeTorrent" />
         <p className="kicker">MemeTorrent · live</p>
       </div>
       <h1>Jukebox</h1>
       <div className="disc-wrap">
         <div className={room?.current && !room.paused ? "disc spin" : "disc"}>
-          <img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="" />
+          <img src={LOGO} alt="" />
         </div>
       </div>
       <div className="now">
         <h2>{room?.current?.title ?? "Nothing on"}</h2>
         <p>
           {room?.current
-            ? `${room.current.artist} · added by ${room.current.addedBy}`
+            ? `${room.current.artist} · ${room.current.addedBy}${spotifyNow ? " · Spotify" : ""}`
             : "Queue a track from the library"}
         </p>
+        {spotifyNow && !spOn ? (
+          <p className="hint">Host is on Spotify. Mp3s in the queue still play for everyone.</p>
+        ) : null}
         <div className="bar">
           <span style={{ width: `${pct}%` }} />
         </div>
@@ -193,34 +204,41 @@ export function App() {
           Library
         </button>
         <button type="button" className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}>
-          Queue
+          Queue {room?.queue.length ? `(${room.queue.length})` : ""}
         </button>
-        <button type="button" className={tab === "connect" ? "on" : ""} onClick={() => setTab("connect")}>
-          Connect bot
+        <button type="button" className={tab === "spotify" ? "on" : ""} onClick={() => setTab("spotify")}>
+          Spotify
         </button>
       </div>
       {tab === "library" && (
         <div className="panel">
-          <h3>Add to the room</h3>
+          <h3>Add mp3s</h3>
           <button type="button" className="btn ghost" style={{ width: "100%", marginBottom: 8 }} onClick={() => fileRef.current?.click()}>
             Upload from this phone
           </button>
+          <p className="hint">Several files at once. Over 4.5 MB — drop them in SoftwareTesters and the bot queues them.</p>
           <input
             ref={fileRef}
             className="hidden-file"
             type="file"
             accept="audio/*,.mp3,.m4a,.wav"
+            multiple
             onChange={(e) => {
-              const file = e.currentTarget.files?.[0];
+              const files = [...(e.currentTarget.files || [])];
               e.currentTarget.value = "";
-              if (file) void onUpload(file);
+              void (async () => {
+                for (const file of files) await onUpload(file);
+              })();
             }}
           />
-          {(room?.library ?? []).map((t) => (
+          {(room?.library ?? []).map((t: Track) => (
             <div className="row" key={t.id}>
               <div>
                 <strong>{t.title}</strong>
-                <span>{t.artist}</span>
+                <span>
+                  {t.artist}
+                  {t.kind === "spotify" ? " · Spotify" : ""}
+                </span>
               </div>
               <button type="button" onClick={() => void action("queue", { trackId: t.id })}>
                 Queue
@@ -232,7 +250,7 @@ export function App() {
       {tab === "queue" && (
         <div className="panel">
           <h3>Up next</h3>
-          {(room?.queue.length ?? 0) === 0 && <p className="hint">Empty. Queue something from the library.</p>}
+          {(room?.queue.length ?? 0) === 0 && <p className="hint">Empty. Upload or queue something.</p>}
           {room?.queue.map((t) => (
             <div className="row" key={t.id}>
               <div>
@@ -243,32 +261,80 @@ export function App() {
           ))}
         </div>
       )}
-      {tab === "connect" && (
-        <form className="panel" onSubmit={(e) => void onConnect(e)}>
-          <h3>Hook a bot to the group</h3>
+      {tab === "spotify" && (
+        <div className="panel">
+          <h3>Host Spotify</h3>
           <p className="hint">
-            Pick any of your bots. Paste the token from BotFather, then the group chat id. We set the menu
-            button to Open jukebox and post in the group.
+            Only the host needs Premium. Spotify plays on the host phone. Mp3s still play for the whole group at the
+            same time.
           </p>
-          <label htmlFor="token">Bot token</label>
-          <input id="token" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
-          <label htmlFor="chat">Group chat id</label>
+          <label htmlFor="spid">Client ID</label>
           <input
-            id="chat"
+            id="spid"
             type="text"
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            placeholder="-100…"
+            value={spId}
+            onChange={(e) => {
+              setSpId(e.target.value);
+              setSpotifyClientId(e.target.value);
+            }}
+            placeholder="From developer.spotify.com/dashboard"
           />
-          <button type="submit" className="btn primary" style={{ width: "100%" }}>
-            Connect this group
+          <button
+            type="button"
+            className="btn primary"
+            style={{ width: "100%", marginBottom: 12 }}
+            onClick={() => void startSpotifyLogin().catch((err: Error) => setError(err.message))}
+          >
+            {spOn ? "Reconnect Spotify" : "Connect host Spotify"}
           </button>
-          {error ? <p className="error">{error}</p> : null}
-          {ok ? <p className="ok">{ok}</p> : null}
-        </form>
+          {spOn ? (
+            <form onSubmit={(e) => void onSearch(e)}>
+              <label htmlFor="q">Search catalogue</label>
+              <input id="q" type="text" value={spQuery} onChange={(e) => setSpQuery(e.target.value)} placeholder="Song or artist" />
+              <button type="submit" className="btn ghost" style={{ width: "100%", marginBottom: 8 }}>
+                Search
+              </button>
+              {spHits.map((hit) => (
+                <div className="row" key={hit.id}>
+                  <div>
+                    <strong>{hit.name}</strong>
+                    <span>{hit.artists.map((a) => a.name).join(", ")}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void action("spotify", {
+                        title: hit.name,
+                        artist: hit.artists.map((a) => a.name).join(", "),
+                        spotifyUri: hit.uri,
+                        duration: Math.round(hit.duration_ms / 1000),
+                      })
+                    }
+                  >
+                    Queue
+                  </button>
+                </div>
+              ))}
+            </form>
+          ) : null}
+        </div>
       )}
-      {error && tab !== "connect" ? <p className="error">{error}</p> : null}
-      <audio ref={audioRef} playsInline />
+      {error ? <p className="error">{error}</p> : null}
+      {ok && tab === "library" ? <p className="ok">{ok}</p> : null}
+      <audio
+        ref={audioRef}
+        playsInline
+        onLoadedMetadata={(e) => {
+          const el = e.currentTarget;
+          const id = room?.current?.id;
+          if (!id || !el.duration || lastId.current === id + el.duration) return;
+          lastId.current = id + el.duration;
+          void action("duration", { trackId: id, duration: el.duration });
+        }}
+        onEnded={() => {
+          if (isHost) void action("skip");
+        }}
+      />
     </div>
   );
 }
