@@ -82,7 +82,7 @@
       <button class="btn ghost go" id="play">▶</button>
       <button class="btn ghost" id="skip">⏭</button>
     </div>
-    <a class="btn primary" id="live" href="https://t.me/joinchat/WgogJ0YgKAQzN2Q9">Join live stream</a>
+    <a class="btn primary" id="live" href="https://t.me/joinchat/WgogJ0YgKAQzN2Q9" style="display:none">Join live stream</a>
     <div class="row-btns"><button class="btn ghost" id="ly">Lyrics</button></div>
     <div class="panel">
       <h3>Add to the player</h3>
@@ -401,7 +401,9 @@
       try {
         await act("addUrl", { url: url, title: "" });
         srcDraft = "";
-        err = "Stream added.";
+        err = "Playing now in this player.";
+        syncAudio();
+        ensureVideo();
       } catch (e2) {
         err = "Could not add that stream.";
       }
@@ -441,6 +443,9 @@
     }
 
     function liveButton() {
+      if (room.isAdmin) {
+        return '<p class="hint">Adding a track starts it here. Testers hear it on the live bar — this page does not jump to the group.</p>';
+      }
       return '<a class="btn primary" id="live" href="' + escapeHtml(liveHref()) + '" style="margin: 8px 0 12px">Join live stream</a>';
     }
 

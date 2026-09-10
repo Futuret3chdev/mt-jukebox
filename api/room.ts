@@ -661,7 +661,7 @@ async function handleTelegram(update: any) {
         tgMessageId: msg.message_id,
         fileSize: audio?.file_size || voice?.file_size || video?.file_size || doc?.file_size || 0,
       },
-      !getRoom().current,
+      true,
     );
     const queued = "Queued on MT Radio: " + title + "\n\n" + nowText();
     if (priv) await tg("sendMessage", { chat_id: chatId, text: queued, reply_markup: menuKeyboard(true) });
@@ -694,7 +694,7 @@ async function handleTelegram(update: any) {
         duration: 0,
         kind: src.kind,
       },
-      !getRoom().current,
+      true,
     );
     const queued = "Queued on MT Radio: " + title + "\n\n" + nowText();
     if (priv) {
@@ -876,7 +876,7 @@ export default async function handler(req: any, res: any) {
         duration: 0,
         kind: "mp3",
       };
-      addTrack(track, !getRoom().current);
+      addTrack(track, true);
       return res.status(200).json(publicRoom(true));
     }
 
@@ -920,7 +920,7 @@ export default async function handler(req: any, res: any) {
           duration: 0,
           kind: src.kind,
         },
-        !getRoom().current,
+        true,
       );
     }
     return res.status(200).json(publicRoom(who.admin));
