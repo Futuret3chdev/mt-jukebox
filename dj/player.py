@@ -445,9 +445,13 @@ async def main():
         print("call_update", name, flush=True)
         if switching:
             return
-        if "Ended" in name or "Discarded" in name:
+        if "Discarded" in name:
             last = ""
             joined = False
+            print("call_discarded", flush=True)
+            return
+        if "Ended" in name:
+            last = ""
             print("stream_ended replay", flush=True)
 
     async def ensure_call():
@@ -465,10 +469,10 @@ async def main():
             print("create_call_err", type(e).__name__, e, flush=True)
             return False
 
-    async def put_stream(stream, can_start):
+    async def put_stream(stream, can_start, hard=False):
         nonlocal joined, bot_on, switching
         switching = True
-        if joined:
+        if joined and hard:
             try:
                 await user_calls.leave_call(CHAT_ID, close=False)
                 print("left_to_switch", flush=True)
@@ -477,7 +481,7 @@ async def main():
             joined = False
             bot_on = False
             await asyncio.sleep(1)
-        if can_start:
+        if (can_start or hard) and not joined:
             await ensure_call()
             await asyncio.sleep(1)
         try:
@@ -565,7 +569,8 @@ async def main():
                 else:
                     stream = audio_stream(HOLD_WAV)
                     print("hold", flush=True)
-                ok = await put_stream(stream, start_live or not joined)
+                hard = bool(last) and last != tid
+                ok = await put_stream(stream, start_live or not joined, hard)
                 if not ok:
                     last = ""
                     joined = False
