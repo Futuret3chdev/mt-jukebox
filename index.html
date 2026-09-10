@@ -61,10 +61,8 @@
       background: var(--bg); color: var(--fg); padding: 0 12px; margin: 8px 0 16px; font: inherit;
     }
     label { font-size: 0.8rem; color: var(--muted); }
-    .file-btn { position: relative; display: grid; place-items: center; overflow: hidden; }
-    .file-btn input[type="file"] {
-      position: absolute; inset: 0; width: 100%; height: 100%;
-      opacity: 0; font-size: 80px; cursor: pointer;
+    input[type="file"] {
+      width: 100%; margin: 8px 0 4px; color: var(--fg); font: inherit;
     }
   </style>
 </head>
@@ -72,21 +70,35 @@
   <div class="app" id="app">
     <div class="brand"><img src="https://memetorrent.futuret3ch.com.au/logo.png" alt="MemeTorrent" /><p class="kicker">MemeTorrent</p></div>
     <h1>Jukebox</h1>
-    <p class="lead">One room. Everyone who opens this hears the same track.</p>
+    <p class="lead">Add music here, then tap Join live. Closing this page does not stop the stream.</p>
+    <div class="panel">
+      <h3>Add a song</h3>
+      <input id="file-boot" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />
+      <p class="hint">Pick from <strong>Files</strong>, not Photos. Or send the mp3 in SoftwareTesters.</p>
+    </div>
   </div>
   <audio id="audio" playsinline></audio>
   <script>
     const FALLBACK = [];
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9?voicechat";
+    const LOGO = "https://memetorrent.futuret3ch.com.au/logo.png";
     const tg = window.Telegram && window.Telegram.WebApp;
-    if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#0a0a0b"); }
+    try {
+      if (tg) {
+        if (tg.ready) tg.ready();
+        if (tg.expand) tg.expand();
+        if (tg.setHeaderColor) tg.setHeaderColor("#0a0a0b");
+      }
+    } catch (e) {}
     const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
     const tgName = u
       ? [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || u.username || "Guest"
       : "";
+    let storedName = "Guest";
+    try { storedName = sessionStorage.getItem("jb-name") || "Guest"; } catch (e) {}
     const me = u
       ? { id: String(u.id), name: tgName, username: u.username || "" }
-      : { id: "guest-" + Math.random().toString(36).slice(2, 8), name: sessionStorage.getItem("jb-name") || "Guest", username: "" };
+      : { id: "guest-" + Math.random().toString(36).slice(2, 8), name: storedName, username: "" };
 
     let joined = false;
     let room = { current: null, paused: true, startedAt: null, pausePos: 0, queue: [], library: [], listeners: [], hostId: null, hostName: "" };
@@ -114,6 +126,9 @@
       } catch (e) {
         window.location.href = LIVE;
       }
+    }
+    function abs(url) {
+      try { return new URL(url, location.origin).href; } catch (e) { return url; }
     }
 
     async function pull() {
@@ -161,8 +176,9 @@
     }
 
     async function upload(file) {
+      bootRoom();
       if (!file) return;
-      if (file.size > 4_500_000) {
+      if (file.size > 4500000) {
         err = file.name + " is over 4.5 MB. Drop it in SoftwareTesters instead.";
         paint();
         return;
@@ -214,12 +230,11 @@
         <p class="hint">${u ? "Using your Telegram name. Play opens the group live stream so you can close this page." : "iPhone needs this tap so sound is allowed."}</p>`;
       document.getElementById("join").onclick = () => {
         const n = document.getElementById("name").value.trim();
-        if (n && !u) { me.name = n; sessionStorage.setItem("jb-name", n); }
-        joined = true;
-        paint();
-        pull();
-        setInterval(pull, 1000);
-        setInterval(() => { if (joined) tickBar(); }, 250);
+        if (n && !u) {
+          me.name = n;
+          try { sessionStorage.setItem("jb-name", n); } catch (e) {}
+        }
+        bootRoom();
         openLive();
       };
     }
@@ -282,11 +297,8 @@
         <p class="meta"><span>${nListen} in the room</span><span>${escapeHtml(me.name)}</span></p>
         <div class="panel">
           <h3>Add songs</h3>
-          <label class="file-btn btn ghost">
-            Upload from this phone
-            <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/mpeg,audio/mp4,audio/*" multiple />
-          </label>
-          <p class="hint">Tap Upload, then <strong>Files</strong> (not Photos). Over 4.5 MB — drop the song in SoftwareTesters.</p>
+          <input id="file" type="file" accept=".mp3,.m4a,.wav,.aac,.ogg,.flac,audio/*" multiple />
+          <p class="hint">Pick from <strong>Files</strong>, not Photos. Songs over 4.5 MB — send them in SoftwareTesters.</p>
         </div>
         <div class="panel">
           <h3>Up next (${(room.queue || []).length})</h3>
@@ -319,17 +331,13 @@
           });
           const data = await res.json();
           lyrics = data.lyrics || "No lyrics found.";
-        } catch {
+        } catch (e) {
           lyrics = "Could not load lyrics.";
         }
         paint();
       };
       const fileEl = document.getElementById("file");
-      if (fileEl) fileEl.onchange = (e) => {
-        const files = [...(e.target.files || [])];
-        e.target.value = "";
-        files.forEach((f) => upload(f));
-      };
+      bindFile(fileEl);
       document.querySelectorAll("[data-q]").forEach((btn) => {
         btn.onclick = () => act("queue", { trackId: btn.getAttribute("data-q") });
       });
@@ -341,8 +349,33 @@
       });
     }
 
-    audio.addEventListener("ended", () => { if (room.hostId === me.id) act("skip"); });
-    paintJoin();
+    function bootRoom() {
+      if (joined) {
+        paint();
+        return;
+      }
+      joined = true;
+      paint();
+      pull();
+      setInterval(pull, 1000);
+      setInterval(function () { if (joined) tickBar(); }, 250);
+    }
+
+    function bindFile(el) {
+      if (!el || el.getAttribute("data-bound")) return;
+      el.setAttribute("data-bound", "1");
+      el.onchange = function (e) {
+        var files = [];
+        var list = e.target.files || [];
+        for (var i = 0; i < list.length; i++) files.push(list[i]);
+        e.target.value = "";
+        files.forEach(function (f) { upload(f); });
+      };
+    }
+
+    audio.addEventListener("ended", function () { if (room.hostId === me.id) act("skip"); });
+    bindFile(document.getElementById("file-boot"));
+    try { bootRoom(); } catch (e) { err = "Reload, then pick a file below."; }
   </script>
 </body>
 </html>
