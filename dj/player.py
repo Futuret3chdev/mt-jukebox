@@ -445,9 +445,6 @@ async def main():
             return
         if "Ended" in name:
             print("stream_ended", last, flush=True)
-            if last == "silence":
-                return
-            last = ""
 
     async def ensure_call():
         try:
