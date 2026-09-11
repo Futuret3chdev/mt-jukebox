@@ -91,7 +91,7 @@
       <button type="button" class="btn ghost" id="skip">Skip</button>
       <button type="button" class="btn ghost" id="again">Again</button>
       <button type="button" class="btn ghost" id="loop">Loop on</button>
-      <a class="btn primary" id="live" href="https://t.me/+WgogJ0YgKAQzN2Q9">Live</a>
+      <button type="button" class="btn primary" id="live">Live</button>
     </div>
     <p class="err" id="status"></p>
     <div class="panel" id="addpanel">
@@ -163,7 +163,7 @@
         e.stopPropagation();
       }
       wantPlay = true;
-      syncAudio();
+      startSound();
       chrome();
       if (room.isAdmin) act("golive");
       var href = LIVE;
@@ -179,7 +179,11 @@
           return false;
         }
       } catch (err2) {}
-      location.href = href;
+      try {
+        window.open(href, "_blank");
+      } catch (err3) {
+        location.href = href;
+      }
       return false;
     }
     function abs(url) {

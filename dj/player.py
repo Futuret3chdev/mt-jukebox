@@ -156,7 +156,13 @@ def radio_av(audio_path):
 
 
 def audio_stream(path):
-    return radio_av(path)
+    return Stream(
+        microphone=AudioStream(
+            MediaSource.FILE,
+            path,
+            AudioParameters(bitrate=48000, channels=2),
+        ),
+    )
 
 
 def av_stream(path):
@@ -430,6 +436,7 @@ async def main():
     pause_votes = 0
     switching = False
     print("DJ_READY", flush=True)
+    group_peer = await user.resolve_peer(CHAT_ID)
 
     @user_calls.on_update()
     async def _on_update(client, update):
@@ -464,20 +471,15 @@ async def main():
     async def put_stream(stream, can_start, hard=False):
         nonlocal joined, bot_on, switching
         switching = True
-        if joined and hard:
-            try:
-                await user_calls.leave_call(CHAT_ID, close=False)
-                print("left_to_switch", flush=True)
-            except Exception as e:
-                print("leave_switch_err", type(e).__name__, e, flush=True)
-            joined = False
-            bot_on = False
-            await asyncio.sleep(1)
-        if (can_start or hard) and not joined:
+        if not joined:
             await ensure_call()
             await asyncio.sleep(1)
         try:
-            await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=True))
+            await user_calls.play(
+                CHAT_ID,
+                stream,
+                GroupCallConfig(auto_start=True, join_as=group_peer),
+            )
             joined = True
             bot_on = False
             try:
@@ -488,10 +490,22 @@ async def main():
             switching = False
             return True
         except Exception as e:
-            print("user_play_err", type(e).__name__, e, flush=True)
-            joined = False
-            switching = False
-            return False
+            print("group_play_err", type(e).__name__, e, flush=True)
+            try:
+                await user_calls.play(CHAT_ID, stream, GroupCallConfig(auto_start=True))
+                joined = True
+                try:
+                    await user_calls.unmute(CHAT_ID)
+                except Exception:
+                    pass
+                print("self_mic", flush=True)
+                switching = False
+                return True
+            except Exception as e2:
+                print("user_play_err", type(e2).__name__, e2, flush=True)
+                joined = False
+                switching = False
+                return False
 
     while True:
         try:
@@ -559,8 +573,8 @@ async def main():
                 else:
                     stream = audio_stream(HOLD_WAV)
                     print("silence", flush=True)
-                hard = bool(last) and last != tid
-                ok = await put_stream(stream, start_live or not joined, hard)
+                hard = False
+                ok = await put_stream(stream, not joined, False)
                 if not ok:
                     last = ""
                     joined = False
