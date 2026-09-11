@@ -348,14 +348,7 @@ def stream_from_url(url, kind, start=0):
             return audio_stream(WAV)
         except Exception as e:
             print("dl_err", e, flush=True)
-    fallback = newest_wav()
-    if fallback:
-        print("fallback_cache", fallback, flush=True)
-        if start > 2:
-            sliced = os.path.join(WORKDIR, "seek.wav")
-            to_wav(fallback, sliced, start)
-            return audio_stream(sliced)
-        return audio_stream(fallback)
+    print("no_source", flush=True)
     return audio_stream(HOLD_WAV)
 
 
@@ -524,16 +517,10 @@ async def main():
             if cur and not paused:
                 empty_n = 0
                 pause_votes = 0
-                tid = title_key(cur) or str(cur.get("id") or "hold")
+                tid = title_key(cur) or str(cur.get("id") or "x")
             else:
-                empty_n += 1
-                if last and last != "hold" and empty_n < 40:
-                    tid = last
-                    paused = False
-                    cur = None
-                else:
-                    tid = "hold"
-                    cur = None
+                tid = "silence"
+                cur = None
             now = time.time()
             start_live = bool(want and want > last_live)
             if start_live:
@@ -553,8 +540,8 @@ async def main():
                 last = ""
                 await asyncio.sleep(1)
                 continue
-            refresh_hold = joined and tid == "hold" and last == "hold" and now - last_play > 480
-            if start_live or tid != last or refresh_hold:
+            refresh_hold = False
+            if start_live or tid != last:
                 start = started_pos(room) if (cur and not start_live) else 0
                 if kind in YDL_KINDS:
                     start = 0
@@ -568,7 +555,7 @@ async def main():
                         asyncio.create_task(asyncio.to_thread(publish_play, str(cur.get("id") or ""), srcp))
                 else:
                     stream = audio_stream(HOLD_WAV)
-                    print("hold", flush=True)
+                    print("silence", flush=True)
                 hard = bool(last) and last != tid
                 ok = await put_stream(stream, start_live or not joined, hard)
                 if not ok:
@@ -581,7 +568,7 @@ async def main():
                 last_play = now
                 paused_state = False
                 print("playing", tid, flush=True)
-            elif paused and cur and not paused_state and last != "hold":
+            elif paused and cur and not paused_state and last != "silence":
                 pause_votes += 1
                 if pause_votes < 2:
                     await asyncio.sleep(3)

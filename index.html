@@ -104,7 +104,7 @@
     </div>
     <div id="desk"></div>
   </div>
-  <audio id="audio" playsinline webkit-playsinline preload="auto" src="/hold.mp3"></audio>
+  <audio id="audio" playsinline webkit-playsinline preload="auto"></audio>
   <script>
     const LIVE = "https://t.me/+WgogJ0YgKAQzN2Q9";
     const GROUP = "https://t.me/+WgogJ0YgKAQzN2Q9";
@@ -282,20 +282,18 @@
     }
     function mediaHref() {
       var cur = room.current;
-      var blob = "";
-      try { blob = audio.getAttribute("data-src") || ""; } catch (e) { blob = ""; }
-      if (blob.indexOf("blob:") === 0) return blob;
-      if (!cur || cur.kind === "station") return "/hold.mp3";
+      if (!cur || cur.kind === "station") return "";
       if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
-      if (cur.url && String(cur.url).indexOf("/api/") === 0) return cur.url;
-      if (cur.playUrl && String(cur.playUrl).indexOf("/api/") === 0) return cur.playUrl;
-      var u = cur.playUrl || cur.url || "";
-      if (!u) return "/hold.mp3";
+      var u = "";
+      if (cur.playUrl && String(cur.playUrl).indexOf("tmpfiles") < 0) u = cur.playUrl;
+      if (!u) u = cur.url || "";
+      if (!u || String(u).indexOf("tmpfiles") >= 0) return "";
+      if (u.indexOf("/api/") === 0) return u;
       if (u.indexOf("http") === 0) {
         if (cur.kind === "radio" || cur.kind === "stream") return u;
         return "/api/room?src=" + encodeURIComponent(u);
       }
-      return "/hold.mp3";
+      return "";
     }
     function playFileNow(file) {
       try { if (playFileNow.href) URL.revokeObjectURL(playFileNow.href); } catch (e0) {}
@@ -343,7 +341,11 @@
           feed.play().catch(function () {});
         } catch (e1) {}
       }
-      var href = mediaHref() || "/hold.mp3";
+      var href = mediaHref();
+      if (!href) {
+        try { audio.pause(); } catch (e0) {}
+        return;
+      }
       try {
         audio.muted = false;
         audio.volume = 1;
