@@ -284,10 +284,8 @@
       var cur = room.current;
       if (!cur || cur.kind === "station") return "";
       if (["youtube", "twitch", "kick"].indexOf(cur.kind || "") >= 0) return "";
-      var u = "";
-      if (cur.playUrl && String(cur.playUrl).indexOf("tmpfiles") < 0) u = cur.playUrl;
-      if (!u) u = cur.url || "";
-      if (!u || String(u).indexOf("tmpfiles") >= 0) return "";
+      var u = cur.playUrl || cur.url || "";
+      if (!u) return "";
       if (u.indexOf("/api/") === 0) return u;
       if (u.indexOf("http") === 0) {
         if (cur.kind === "radio" || cur.kind === "stream") return u;

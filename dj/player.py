@@ -444,8 +444,10 @@ async def main():
             print("call_discarded", flush=True)
             return
         if "Ended" in name:
+            print("stream_ended", last, flush=True)
+            if last == "silence":
+                return
             last = ""
-            print("stream_ended replay", flush=True)
 
     async def ensure_call():
         try:
@@ -513,7 +515,7 @@ async def main():
             paused = bool(room.get("paused"))
             if cur and kind == "station":
                 cur = None
-                paused = False
+                paused = True
             if cur and not paused:
                 empty_n = 0
                 pause_votes = 0
@@ -542,7 +544,7 @@ async def main():
                 continue
             refresh_hold = False
             if start_live or tid != last:
-                start = started_pos(room) if (cur and not start_live) else 0
+                start = 0
                 if kind in YDL_KINDS:
                     start = 0
                 if cur and not paused:
