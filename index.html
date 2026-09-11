@@ -360,18 +360,19 @@
       if (wantPlay && audio.paused) startSound();
       syncVideo();
     }
-    function hitPlay() {
+    async function hitPlay() {
       wantPlay = !wantPlay;
-      if (room.isAdmin) {
-        act(wantPlay ? "play" : "pause");
-        if (wantPlay) act("golive");
-      }
       if (wantPlay) {
         err = "";
+        if (room.isAdmin) {
+          try { await act("play"); } catch (e1) {}
+          try { await act("golive"); } catch (e2) {}
+        }
         startSound();
         syncVideo();
       } else {
         try { audio.pause(); } catch (e) {}
+        if (room.isAdmin) act("pause");
       }
       chrome();
     }

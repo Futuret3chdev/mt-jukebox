@@ -516,6 +516,10 @@ async def main():
             if cur and kind == "station":
                 cur = None
                 paused = True
+            if (not cur or paused) and lib:
+                cur = lib[0]
+                kind = cur.get("kind") or "mp3"
+                paused = False
             if cur and not paused:
                 empty_n = 0
                 pause_votes = 0
